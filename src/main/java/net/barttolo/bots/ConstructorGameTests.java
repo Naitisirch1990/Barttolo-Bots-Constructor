@@ -60,6 +60,8 @@ public class ConstructorGameTests {
             BlockPos p=c.offset(dx,0,dz);level.setBlockAndUpdate(p,Blocks.GRASS_BLOCK.defaultBlockState());
             for(int dy=1;dy<=8;dy++)level.setBlockAndUpdate(p.above(dy),Blocks.AIR.defaultBlockState());
         }
+        d.tasks.add(task(15,c.east(3)));
+        h.assertTrue(!(boolean)call(b,"canCatalogSite",new Class[]{ServerLevel.class,ConstructorData.class,BlockPos.class},level,d,c),"catalog must respect the planned village perimeter");d.tasks.clear();
         field(b,"visualX",c.getX()+.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
         level.setBlockAndUpdate(c,Blocks.FARMLAND.defaultBlockState());
         level.setBlockAndUpdate(c.above(),Blocks.CARROTS.defaultBlockState().setValue(CropBlock.AGE,7));

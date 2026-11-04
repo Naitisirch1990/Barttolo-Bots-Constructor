@@ -396,6 +396,7 @@ public final class ConstructorBuilder {
             if(preparing&&i==d.taskCursor)continue;CompoundTag t=d.task(i);int type=t.getInt("type");
             int dx=t.getInt("x")-c.getX(),dz=t.getInt("z")-c.getZ(),distance=dx*dx+dz*dz;
             if(isMacro(type)&&distance<14*14)return false;
+            if(type==FENCE&&Math.abs(dx)<=4&&Math.abs(dz)<=4)return false;
             if((type==LAMP||type==SAPLING)&&distance<7*7)return false;
             if((type==RAMP||type==RETAIN||type==FILL||type==TERRACE)&&distance<6*6)return false;
         }
