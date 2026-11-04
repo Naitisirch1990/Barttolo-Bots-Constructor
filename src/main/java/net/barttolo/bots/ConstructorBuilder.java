@@ -265,7 +265,7 @@ public final class ConstructorBuilder {
         if(!level.hasChunkAt(ground)||!isOutdoorGround(level,ground)){completeTask(d,true);return;}
         preparing=true;taskPlacedStart=d.placed;taskPlacementFailures=0;
         if(actor!=null)face(actor,x+.5-visualX,z+.5-visualZ);movementPacketPending=true;
-        if(type==RAMP||type==RETAIN){if(validEarthColumn(level,d,ground,direction)){for(int y=ground.getY()+1;y<=direction;y++)pending.add(new Placement(new BlockPos(x,y,z),type==RETAIN?Blocks.COBBLESTONE.defaultBlockState():y==direction?Blocks.GRASS_BLOCK.defaultBlockState():Blocks.DIRT.defaultBlockState()));}}
+        if(type==RAMP||type==RETAIN){if(validEarthColumn(level,d,ground,direction)){for(int rampY=ground.getY()+1;rampY<=direction;rampY++)pending.add(new Placement(new BlockPos(x,rampY,z),type==RETAIN?Blocks.COBBLESTONE.defaultBlockState():rampY==direction?Blocks.GRASS_BLOCK.defaultBlockState():Blocks.DIRT.defaultBlockState()));}}
         else if(type==LOOKOUT){if(canLookout(level,d,ground))planLookout(level,ground,direction);}
         else if(type==CLEAR){if(isDebris(level,ground))pending.add(new Placement(ground,Blocks.AIR.defaultBlockState(),true));}
         else if(type==FENCE){if(canFence(level,d,ground))pending.add(new Placement(ground.above(),villageFence(level,ground).defaultBlockState()));}
