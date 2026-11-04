@@ -278,6 +278,7 @@ public final class ConstructorBuilder {
             if(!canBuildLamp(level,d,ground,direction)){completeTask(d,true);return;}
             planLampBlocks(level,ground,direction);
         }
+        if(type==GARDEN||type==WORKSITE)orientSite(level,ground);
         preparing=false;
         if(pending.isEmpty())completeTask(d,true);
     }
@@ -697,6 +698,13 @@ public final class ConstructorBuilder {
     }
 
     private Block villageWood(ServerLevel level,BlockPos p,String part){String name=net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(villageFence(level,p)).getPath().replace("_fence", "_"+part);return net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(new ResourceLocation("minecraft",name));}
+    private void orientSite(ServerLevel level,BlockPos center){
+        BlockPos nearest=null;int distance=1000;
+        for(int dx=-12;dx<=12;dx++)for(int dz=-12;dz<=12;dz++){int dist=Math.abs(dx)+Math.abs(dz);if(dist<distance&&isRoad(level,center.offset(dx,0,dz))){distance=dist;nearest=center.offset(dx,0,dz);}}
+        if(nearest==null)return;int dx=nearest.getX()-center.getX(),dz=nearest.getZ()-center.getZ();
+        net.minecraft.world.level.block.Rotation rot=Math.abs(dx)>Math.abs(dz)?(dx>0?net.minecraft.world.level.block.Rotation.COUNTERCLOCKWISE_90:net.minecraft.world.level.block.Rotation.CLOCKWISE_90):(dz<0?net.minecraft.world.level.block.Rotation.CLOCKWISE_180:net.minecraft.world.level.block.Rotation.NONE);
+        ArrayDeque<Placement> rotated=new ArrayDeque<>();for(Placement p:pending){BlockPos relative=p.pos().subtract(center).rotate(rot);rotated.add(new Placement(center.offset(relative),p.state().rotate(rot),p.force()));}pending.clear();pending.addAll(rotated);
+    }
     private int priority(int type){return switch(type){case CLEAR,FILL,TERRACE,PATCH,GRASS->0;case PATH->1;case LAMP,TORCH->2;case FARM,WORKSITE,GARDEN->3;case FENCE->5;default->4;};}
     private boolean remembered(ConstructorData d,int type,BlockPos p){
         for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);if(!d.dimension.equals(m.getString("dimension")))continue;
