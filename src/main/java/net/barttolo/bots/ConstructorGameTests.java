@@ -20,6 +20,29 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void unfinishedWorkPersistsAndResumes(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+768,level.getMaxBuildHeight()-28,origin.getZ()+768);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.configured=true;d.chestsDone=true;d.scanning=false;d.active=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){level.setBlockAndUpdate(c.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());for(int y=1;y<=5;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());}
+        BlockPos isolated=c.east(8);level.setBlockAndUpdate(c.above(),Blocks.STONE_BRICKS.defaultBlockState());
+        for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++)if(dx!=0||dz!=0)for(int y=1;y<=2;y++)level.setBlockAndUpdate(isolated.offset(dx,y,dz),Blocks.STONE_BRICKS.defaultBlockState());
+        d.tasks.add(task(2,c));d.tasks.add(task(2,isolated));
+        field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        for(int tick=0;tick<10000&&!d.reviewPending&&!d.finished;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.reviewPending&&!d.finished&&d.retryTasks.size()==2,"blocked and inaccessible work must remain pending, never falsely finished");
+        h.assertTrue(d.retryPass>=1,"automatically recheck deferred work before pausing");
+        h.assertTrue(d.lastReport.contains("No marqué la zona como terminada"),"final report must distinguish blocked work from completion");
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));
+        h.assertTrue(restored.reviewPending&&restored.retryTasks.size()==2&&!restored.finished,"pending jobs and review state must survive restart");
+        level.setBlockAndUpdate(c.above(),Blocks.AIR.defaultBlockState());
+        for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++)if(dx!=0||dz!=0)for(int y=1;y<=2;y++)level.setBlockAndUpdate(isolated.offset(dx,y,dz),Blocks.AIR.defaultBlockState());
+        call(b,"resumePending",new Class[]{ConstructorData.class,boolean.class},restored,false);
+        for(int tick=0;tick<10000&&!restored.finished&&!restored.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,restored);
+        h.assertTrue(restored.finished&&!restored.reviewPending&&restored.retryTasks.isEmpty(),"resume must finish stored jobs after access becomes available");
+        h.assertTrue(level.getBlockState(c.above()).getBlock() instanceof net.minecraft.world.level.block.FlowerBlock&&level.getBlockState(isolated.above()).getBlock() instanceof net.minecraft.world.level.block.FlowerBlock,"both deferred jobs must actually be placed");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void multiBlockPitAndPartiallyFilledColumns(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+512,level.getMaxBuildHeight()-24,origin.getZ()+512);
         ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;

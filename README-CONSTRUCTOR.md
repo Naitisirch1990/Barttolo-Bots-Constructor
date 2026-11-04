@@ -60,6 +60,8 @@ Al terminar entrega automáticamente un informe con tareas completadas por categ
 - Cada columna se vuelve a medir al ejecutarla: un relleno parcial previo no invalida el resto del trabajo. Amplía los puntos de trabajo desde el borde a cuatro bloques y permite transitar roca natural.
 - Las reservas protegen la huella de las estructuras en vez de excluir grandes círculos alrededor. Las farolas no se proponen sobre rellenos pendientes y el vallado se ejecuta después de los trabajos de superficie para no cerrar accesos antes de tiempo.
 - Pruebas de cuencas y ejecución Forge de un pozo escalonado de 4×4 con fondo de piedra, hierba y una columna parcialmente rellenada, conservando camino y agua.
+- Las tareas sin acceso o con condiciones cambiadas se guardan en una cola persistente. Reintenta automáticamente después de las otras reparaciones; si el obstáculo persiste, pausa con trabajos pendientes sin marcar la zona terminada. Iniciar reintenta esa cola sin crear otra asignación. Los informes antiguos con tareas pendientes pueden volver a revisarse.
+- Prueba Forge adicional: dos tareas bloqueadas, reintento automático, persistencia tras guardado y finalización al liberar el acceso y reanudar.
 - Mantiene el catálogo y los comandos crear/iniciar. Las farolas antiguas no se recolocan automáticamente.
 
 ## Taludes 0.4.1 / test14

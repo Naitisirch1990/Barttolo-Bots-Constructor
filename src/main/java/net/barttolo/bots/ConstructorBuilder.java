@@ -69,6 +69,7 @@ public final class ConstructorBuilder {
     public int start(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
         if(!d.configured){source.sendFailure(Component.literal("Primero asigná una zona con /constructor crear [32..128]."));return 0;}
+        if(d.reviewPending)resumePending(d,false);
         if(d.finished){source.sendFailure(Component.literal("La zona ya está terminada. Asigná otra con /constructor crear."));return 0;}
         d.active=true;d.auditOnly=false;d.chestsPaused=false;d.setDirty();announced=false;
         source.sendSuccess(()->Component.literal(d.scanning?"Constructor quieto: empieza a analizar la zona.":"Constructor retoma el trabajo desde el suelo."),false);return 1;
@@ -95,9 +96,9 @@ public final class ConstructorBuilder {
     }
     public int status(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
-        String state=!d.configured?"sin zona":d.finished?"terminado":d.auditOnly&&!d.active&&!d.scanning?"auditoría lista":!d.active?"pausado":d.scanning?(d.auditOnly?"auditando superficie":"escaneando quieto"):"trabajando";
+        String state=!d.configured?"sin zona":d.finished?"terminado":d.reviewPending?"pendiente de revisión":d.auditOnly&&!d.active&&!d.scanning?"auditoría lista":!d.active?"pausado":d.scanning?(d.auditOnly?"auditando superficie":"escaneando quieto"):"trabajando";
         int total=d.width*d.width;
-        if(d.finished&&!d.lastReport.isEmpty()){source.sendSuccess(()->Component.literal(d.lastReport),false);return 1;}
+        if((d.finished||d.reviewPending)&&!d.lastReport.isEmpty()){source.sendSuccess(()->Component.literal(d.lastReport),false);return 1;}
         String progress=d.configured?(d.scanning?" | columnas "+Math.min(d.cursor,total)+"/"+total:" | tareas "+Math.min(d.taskCursor,d.tasks.size())+"/"+d.tasks.size())+" | aldea "+d.villageReport+" | huecos "+d.holesFound+" | camino "+d.roadsFound+" columnas | piedra aislada "+d.stoneFound+" | huertas "+taskCount(d,FARM)+" | jardines "+taskCount(d,GARDEN)+" | obras "+taskCount(d,WORKSITE)+" | tareas "+d.tasks.size()+" | bloques "+d.placed+" | omitidos "+d.skipped+" | Lootr "+d.chestsConverted+"/"+d.chestsFound+" | cofres fallidos "+d.chestsFailed+" | dobles en límite "+d.chestsBoundary+" | conversión "+(!ConstructorLootr.available()?"Lootr ausente":d.chestsDone?"lista":d.auditOnly||d.chestsPaused?"pausada":"en curso"):"";
         source.sendSuccess(()->Component.literal("Constructor "+state+progress+" | "+(d.configured?d.dimension+" centro "+d.centerX+" "+d.centerY+" "+d.centerZ+" | "+d.width+"×"+d.width:"")),false);return 1;
     }
@@ -280,6 +281,7 @@ public final class ConstructorBuilder {
     }
 
     private void workTick(MinecraftServer server,ServerLevel level,ConstructorData d){
+        if(d.reviewPending)return;
         if(!pending.isEmpty()){
             if(placementDelay>0){placementDelay--;return;}
             Placement p=pending.removeFirst();
@@ -298,13 +300,21 @@ public final class ConstructorBuilder {
         }
         if(d.taskCursor>=d.tasks.size()){
             if(!d.chestsDone)return;
-            d.active=false;d.finished=true;d.setDirty();d.lastReport=completionReport(d);d.setDirty();announce(server,level,d.lastReport);return;
+            if(!d.retryTasks.isEmpty()){
+                if(d.retryPass<2&&(d.retryPass==0||d.placed>d.retryBaseline)){resumePending(d,true);return;}
+                d.active=false;d.finished=false;d.reviewPending=true;
+            }else{d.active=false;d.finished=true;}
+            d.lastReport=completionReport(d);d.setDirty();announce(server,level,d.lastReport);return;
         }
         if(!beginNearestTask(level,d))return;
         if(!walking)prepareTask(level,d);
     }
     private boolean beginNearestTask(ServerLevel level,ConstructorData d){
         if(d.taskCursor>=d.tasks.size())return false;
+        for(int i=d.taskCursor;i<d.tasks.size();i++)if(taskSatisfied(level,d,d.task(i))){
+            if(i!=d.taskCursor){var t=d.tasks.get(d.taskCursor);d.tasks.set(d.taskCursor,d.tasks.get(i));d.tasks.set(i,t);}
+            taskPlacedStart=d.placed;taskPlacementFailures=0;d.satisfiedJobs++;completeTask(d,false);return false;
+        }
         BlockPos current=standingGround(level,(int)Math.floor(visualX),(int)Math.floor(visualZ),(int)Math.floor(visualY-.01));
         if(current==null){recoverPosition(level,d);return false;}
         recoveryAttempts=0;recoveryDelay=0;
@@ -341,6 +351,7 @@ public final class ConstructorBuilder {
         if(d.taskCursor>=d.tasks.size())return;
         CompoundTag task=d.task(d.taskCursor);int type=task.getInt("type"),x=task.getInt("x"),y=task.getInt("y"),z=task.getInt("z"),direction=task.getInt("direction");
         BlockPos ground=new BlockPos(x,y,z);
+        if(taskSatisfied(level,d,task)){taskPlacedStart=d.placed;taskPlacementFailures=0;d.satisfiedJobs++;completeTask(d,false);return;}
         if(isLawnJob(type)&&!lawnRepairAllowed(level,d,ground)){taskPlacedStart=d.placed;taskPlacementFailures=0;d.satisfiedJobs++;completeTask(d,false);return;}
         if((type==PATH&&level.getBlockState(ground).is(Blocks.DIRT_PATH))||(type==GRASS&&level.getBlockState(ground).is(Blocks.GRASS_BLOCK))){taskPlacedStart=d.placed;taskPlacementFailures=0;d.satisfiedJobs++;completeTask(d,false);return;}
         if(!level.hasChunkAt(ground)||(type!=PATH&&type!=FILL&&type!=RAMP&&type!=RETAIN&&!isOutdoorGround(level,ground))){completeTask(d,true);return;}
@@ -1028,14 +1039,46 @@ public final class ConstructorBuilder {
         pending.add(new Placement(center.relative(view).relative(side).above(2),Blocks.LANTERN.defaultBlockState()));
     }
 
-    private void resetReport(ConstructorData d){d.landscapeReport="pendiente";d.lastReport="";d.completed=new CompoundTag();d.deferred=new CompoundTag();d.pendingExamples.clear();d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;d.satisfiedJobs=0;}
+    private void resetReport(ConstructorData d){d.reviewPending=false;d.retryPass=0;d.retryBaseline=0;d.retryTasks.clear();d.landscapeReport="pendiente";d.lastReport="";d.completed=new CompoundTag();d.deferred=new CompoundTag();d.pendingExamples.clear();d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;d.satisfiedJobs=0;}
     private String jobName(int type){return switch(type){case RAMP->"taludes de césped";case RETAIN->"contención";case LOOKOUT->"miradores";case CLEAR->"limpieza";case FILL,TERRACE->"relleno";case PATCH,GRASS->"césped";case PATH->"caminos";case LAMP,TORCH->"iluminación";case FARM->"huertas";case GARDEN->"jardines";case WORKSITE->"talleres";case FENCE->"vallado";case 20->"bancos/jardineras";case 21->"pérgolas";case 22->"pozos";case 23->"puestos";case 24->"merenderos";case 25->"estanques";default->"plantas/decoración";};}
-    private void deferJob(ConstructorData d,CompoundTag job,String reason){String key=Integer.toString(job.getInt("type"));d.deferred.putInt(key,d.deferred.getInt(key)+1);if(d.pendingExamples.size()<4){CompoundTag example=job.copy();example.putString("reason",reason);d.pendingExamples.add(example);}}
+    private void deferJob(ConstructorData d,CompoundTag job,String reason){
+        String key=Integer.toString(job.getInt("type"));d.deferred.putInt(key,d.deferred.getInt(key)+1);
+        if(d.pendingExamples.size()<4){CompoundTag example=job.copy();example.putString("reason",reason);d.pendingExamples.add(example);}
+        for(int i=0;i<d.retryTasks.size();i++){CompoundTag old=d.retryTasks.getCompound(i);if(old.getInt("type")==job.getInt("type")&&old.getInt("x")==job.getInt("x")&&old.getInt("y")==job.getInt("y")&&old.getInt("z")==job.getInt("z"))return;}
+        CompoundTag retry=job.copy();retry.putString("reason",reason);d.retryTasks.add(retry);d.setDirty();
+    }
+    private void resumePending(ConstructorData d,boolean automatic){
+        var jobs=d.retryTasks.copy();d.tasks.clear();d.tasks.addAll(jobs);d.retryTasks.clear();d.taskCursor=0;
+        d.retryPass=automatic?d.retryPass+1:0;d.retryBaseline=d.placed;d.finished=false;d.reviewPending=false;d.active=true;
+        d.deferred=new CompoundTag();d.pendingExamples.clear();d.inaccessibleJobs=0;d.invalidJobs=0;d.partialJobs=0;d.failedPlacements=0;d.lastReport="";
+        pending.clear();route.clear();routeIndex=0;walking=false;recoveringRoute=false;preparing=false;placementDelay=0;announced=false;loadPlan(d);d.setDirty();
+    }
+    private boolean taskSatisfied(ServerLevel level,ConstructorData d,CompoundTag t){
+        int type=t.getInt("type");BlockPos p=new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z"));if(!level.hasChunkAt(p))return false;
+        BlockState ground=level.getBlockState(p),above=level.getBlockState(p.above());
+        if(isMacro(type)||type==FENCE)for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);if(d.dimension.equals(m.getString("dimension"))&&m.getInt("type")==type&&m.getInt("x")==p.getX()&&m.getInt("y")==p.getY()&&m.getInt("z")==p.getZ())return true;}
+        return switch(type){
+            case GRASS,PATCH -> ground.is(Blocks.GRASS_BLOCK);
+            case PATH -> ground.is(Blocks.DIRT_PATH);
+            case TERRACE -> above.is(Blocks.GRASS_BLOCK);
+            case FILL,RAMP -> {BlockPos cap=new BlockPos(p.getX(),t.getInt("direction"),p.getZ());yield level.getBlockState(cap).is(Blocks.GRASS_BLOCK)||level.getBlockState(cap).is(Blocks.DIRT_PATH);}
+            case RETAIN -> level.getBlockState(new BlockPos(p.getX(),t.getInt("direction"),p.getZ())).is(Blocks.COBBLESTONE);
+            case CLEAR -> ground.isAir();
+            case FLOWER,EDGE_FLOWER -> above.is(flowerFor(p.getX(),p.getZ()));
+            case SAPLING -> above.getBlock() instanceof SaplingBlock||above.is(net.minecraft.tags.BlockTags.LOGS);
+            case POT -> above.is(Blocks.POTTED_POPPY);
+            case TORCH -> above.is(Blocks.TORCH);
+            case LEAVES -> above.is(Blocks.OAK_LEAVES);
+            case FENCE -> above.is(villageFence(level,p));
+            case LAMP -> {boolean complete=true;for(Placement part:lampBlueprint(level,p))if(!level.getBlockState(part.pos()).is(part.state().getBlock())){complete=false;break;}yield complete;}
+            default -> false;
+        };
+    }
     private String completionReport(ConstructorData d){
         Map<String,Integer> done=new LinkedHashMap<>(),left=new LinkedHashMap<>();
         for(String key:d.completed.getAllKeys())done.merge(jobName(Integer.parseInt(key)),d.completed.getInt(key),Integer::sum);
         for(String key:d.deferred.getAllKeys())left.merge(jobName(Integer.parseInt(key)),d.deferred.getInt(key),Integer::sum);
-        StringBuilder report=new StringBuilder("Trabajo finalizado en ").append(d.width).append("×").append(d.width).append(": ").append(d.placed).append(" cambios de bloque.\nCompletado (tareas): ").append(done.isEmpty()?"sin cambios elegibles":done).append(". Lootr: ").append(d.chestsConverted).append(" cofres.\nPendiente: ").append(left.isEmpty()?"ninguna tarea propuesta quedó pendiente":left).append(". Sin acceso: ").append(d.inaccessibleJobs).append("; condiciones cambiadas: ").append(d.invalidJobs).append("; ya resueltas naturalmente: ").append(d.satisfiedJobs).append("; trabajos parciales: ").append(d.partialJobs).append("; colocaciones fallidas: ").append(d.failedPlacements).append('.');
+        StringBuilder report=new StringBuilder(d.reviewPending?"Trabajo pausado con "+d.retryTasks.size()+" tareas pendientes en ":"Trabajo finalizado en ").append(d.width).append("×").append(d.width).append(": ").append(d.placed).append(" cambios de bloque.\nCompletado (tareas): ").append(done.isEmpty()?"sin cambios elegibles":done).append(". Lootr: ").append(d.chestsConverted).append(" cofres.\nPendiente: ").append(left.isEmpty()?"ninguna tarea propuesta quedó pendiente":left).append(". Sin acceso: ").append(d.inaccessibleJobs).append("; condiciones cambiadas: ").append(d.invalidJobs).append("; ya resueltas naturalmente: ").append(d.satisfiedJobs).append("; trabajos parciales: ").append(d.partialJobs).append("; colocaciones fallidas: ").append(d.failedPlacements).append('.');
         report.append("\nAldea: ").append(d.villageReport).append('.').append(" Paisaje: ").append(d.landscapeReport).append('.');
         if(d.roadsFound==0)report.append(" No reconocí caminos: revisar los materiales del sendero.");
         if(d.doors.size()<2)report.append(" No hubo suficientes accesos para proponer un perímetro.");
@@ -1043,6 +1086,7 @@ public final class ConstructorBuilder {
         if(d.chestsFailed>0||d.chestsBoundary>0)report.append(" Cofres pendientes: fallidos ").append(d.chestsFailed).append(", dobles que cruzan el límite ").append(d.chestsBoundary).append('.');
         if(!ConstructorLootr.available())report.append(" Lootr no está instalado: cofres conservados.");
         for(int i=0;i<d.pendingExamples.size();i++){CompoundTag e=d.pendingExamples.getCompound(i);report.append("\nEjemplo pendiente: ").append(jobName(e.getInt("type"))).append(" en ").append(e.getInt("x")).append(' ').append(e.getInt("y")).append(' ').append(e.getInt("z")).append(": ").append(e.getString("reason")).append('.');}
+        if(d.reviewPending)report.append(" No marqué la zona como terminada. Revisé las tareas pendientes después de las reparaciones; siguen protegidas o sin acceso. Usá /constructor iniciar para reintentarlas sin crear otra zona.");
         if(left.isEmpty())report.append(" No detecté más trabajos dentro de las reglas actuales; esto no garantiza que toda la aldea esté completa.");
         return report.toString();
     }
