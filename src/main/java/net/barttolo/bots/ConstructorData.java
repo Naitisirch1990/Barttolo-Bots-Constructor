@@ -13,10 +13,10 @@ public final class ConstructorData extends SavedData {
     public boolean configured,active,scanning=true,finished,auditOnly;
     public int chestCursor,chestsFound,chestsConverted,chestsFailed,chestsBoundary;
     public boolean chestsDone,chestsPaused;
-    public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag();
+    public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag(),roadCells=new ListTag();
     public String villageReport="pendiente",lastReport="",landscapeReport="pendiente";
     public CompoundTag completed=new CompoundTag(),deferred=new CompoundTag();
-    public int inaccessibleJobs,invalidJobs,failedPlacements,partialJobs;
+    public int inaccessibleJobs,invalidJobs,failedPlacements,partialJobs,satisfiedJobs;
     public final ListTag pendingExamples=new ListTag();
 
     public static ConstructorData get(MinecraftServer server){
@@ -36,7 +36,7 @@ public final class ConstructorData extends SavedData {
             // The earlier prototype used the cursor for its moving scan, not this stationary survey.
             d.cursor=0;d.taskCursor=0;d.scanning=true;d.finished=false;
         }
-        d.doors.addAll(tag.getList("doors",10));d.roofs.addAll(tag.getList("roofs",10));d.memory.addAll(tag.getList("memory",10));d.villageReport=tag.getString("villageReport");
+        d.roadCells.addAll(tag.getList("roadCells",10));d.satisfiedJobs=tag.getInt("satisfiedJobs");d.doors.addAll(tag.getList("doors",10));d.roofs.addAll(tag.getList("roofs",10));d.memory.addAll(tag.getList("memory",10));d.villageReport=tag.getString("villageReport");
         d.landscapeReport=tag.getString("landscapeReport");d.lastReport=tag.getString("lastReport");d.completed=tag.getCompound("completed");d.deferred=tag.getCompound("deferred");d.inaccessibleJobs=tag.getInt("inaccessibleJobs");d.invalidJobs=tag.getInt("invalidJobs");d.failedPlacements=tag.getInt("failedPlacements");d.partialJobs=tag.getInt("partialJobs");d.pendingExamples.addAll(tag.getList("pendingExamples",10));
         return d;
     }
@@ -51,6 +51,6 @@ public final class ConstructorData extends SavedData {
         tag.putInt("chestCursor",chestCursor);tag.putInt("chestsFound",chestsFound);tag.putInt("chestsConverted",chestsConverted);tag.putInt("chestsFailed",chestsFailed);tag.putInt("chestsBoundary",chestsBoundary);tag.putBoolean("chestsDone",chestsDone);tag.putBoolean("chestsPaused",chestsPaused);
         tag.put("doors",doors.copy());tag.put("roofs",roofs.copy());tag.put("memory",memory.copy());tag.putString("villageReport",villageReport);
         tag.putString("landscapeReport",landscapeReport);tag.putString("lastReport",lastReport);tag.put("completed",completed.copy());tag.put("deferred",deferred.copy());tag.putInt("inaccessibleJobs",inaccessibleJobs);tag.putInt("invalidJobs",invalidJobs);tag.putInt("failedPlacements",failedPlacements);tag.putInt("partialJobs",partialJobs);tag.put("pendingExamples",pendingExamples.copy());
-        tag.put("tasks",tasks.copy());return tag;
+        tag.put("roadCells",roadCells.copy());tag.putInt("satisfiedJobs",satisfiedJobs);tag.put("tasks",tasks.copy());return tag;
     }
 }

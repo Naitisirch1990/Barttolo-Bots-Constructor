@@ -20,6 +20,11 @@ jobs:
           mkdir -p build/ramp-checks
           javac -d build/ramp-checks src/main/java/net/barttolo/bots/TerrainRampProfile.java tests/TerrainRampProfileChecks.java
           java -cp build/ramp-checks TerrainRampProfileChecks
+      - name: Check village road geometry
+        run: |
+          mkdir -p build/road-checks
+          javac -d build/road-checks src/main/java/net/barttolo/bots/RoadLayout.java tests/RoadLayoutChecks.java
+          java -cp build/road-checks RoadLayoutChecks
       - name: Build Forge mod
         run: chmod +x gradlew && ./gradlew build -x test
       - uses: actions/upload-artifact@v4

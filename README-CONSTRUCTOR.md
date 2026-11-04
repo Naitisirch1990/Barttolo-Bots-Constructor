@@ -53,6 +53,16 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Correcciones 0.3.3 / test11
+
+- Censo completo de puertas antes de reservar caminos y elegir farolas. Reconoce dirt_path y parches conectados de tierra estéril, tierra enraizada y grava.
+- Reconstruye el eje del sendero y propone tres bloques de ancho, sin ensanchar una vía existente de tres a cinco. Repara interrupciones de una columna. Conserva cimientos, cultivos, agua y límites de parcela; el ancho puede quedar incompleto donde hay obstáculos.
+- Reserva el camino completo frente a decoración. Farolas laterales con ritmo de 16 bloques, exclusión entre farolas y detección de lámparas de redstone existentes. Sin cuadrícula adicional de farolas en el césped. No retira farolas de versiones anteriores.
+- Reserva corredores de acceso a ambos lados de las puertas. Movimiento 20% más rápido; revisa puntos de aproximación en el componente de suelo alcanzable y permite caminar bajo aleros sobre suelo natural, sin usar tejados como suelo.
+- Setos bajos solo en esquinas con espacio libre suficiente. El césped que ya creció naturalmente cuenta como tarea resuelta y no como fallo.
+- No requiere comandos adicionales. Para regenerar el plan de una prueba anterior: crear e iniciar. Los planes ya guardados mantienen sus tareas hasta crear otra asignación.
+- CI comprueba ancho 1/2/3, cruces, interrupciones, coordenadas negativas, accesos y determinismo, además de los perfiles de pendiente y la compilación Forge. Falta validación visual dentro de Minecraft.
+
 ## Paisaje 0.3.2
 
 Sin comandos nuevos: al finalizar el escaneo se buscan cortes exteriores cerca de las casas. Las pendientes propuestas rellenan cortes de 4–10 bloques con un descenso por cada dos bloques horizontales y hombros de césped. Necesitan una franja seca y libre de tres bloques de ancho y hasta 20 de largo, completamente dentro de la parcela; no excavan montañas, cuevas ni construcciones. Se limitan a 2 pendientes por 64×64 (4 por 128×128), separadas, y se ejecutan columna por columna. No todos los precipicios serán corregibles.
