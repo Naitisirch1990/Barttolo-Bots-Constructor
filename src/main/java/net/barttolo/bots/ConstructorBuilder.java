@@ -602,7 +602,7 @@ public final class ConstructorBuilder {
     }
     private BlockPos surface(ServerLevel level,int x,int z){
         BlockPos probe=new BlockPos(x,level.getMinBuildHeight(),z);if(!level.hasChunkAt(probe))return null;
-        BlockPos ground=level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,probe).below();
+        BlockPos ground=level.getHeightmapPos(Heightmap.Types.WORLD_SURFACE,probe).below();
         for(int depth=0;depth<=16&&ground.getY()>=level.getMinBuildHeight();depth++,ground=ground.below())
             if(isWalkableGround(level,ground))return ground;
         return null;

@@ -31,7 +31,7 @@ public class ConstructorGameTests {
         level.setBlockAndUpdate(c,Blocks.FARMLAND.defaultBlockState());
         level.setBlockAndUpdate(c.above(),Blocks.CARROTS.defaultBlockState().setValue(CropBlock.AGE,7));
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c),"mature carrots on farmland must not strand the worker");
-        h.assertTrue(c.equals(call(b,"surface",new Class[]{ServerLevel.class,int.class,int.class},level,c.getX(),c.getZ())),"surface must find farmland below crops");
+        h.assertTrue(c.equals(call(b,"surface",new Class[]{ServerLevel.class,int.class,int.class},level,c.getX(),c.getZ())),"surface must find farmland below crops; expected "+c+", found "+call(b,"surface",new Class[]{ServerLevel.class,int.class,int.class},level,c.getX(),c.getZ()));
         h.assertTrue(c.equals(call(b,"standingGround",new Class[]{ServerLevel.class,int.class,int.class,int.class},level,c.getX(),c.getZ(),c.getY())),"feet anchor must accept the newly planted farm");
         h.assertTrue(level.getBlockState(c.above()).is(Blocks.CARROTS),"navigation must not break crops");
         level.setBlockAndUpdate(c.above(),Blocks.STONE.defaultBlockState());
