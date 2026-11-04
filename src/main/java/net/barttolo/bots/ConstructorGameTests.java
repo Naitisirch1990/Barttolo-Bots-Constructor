@@ -20,6 +20,37 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void catalogFitsAndSurvivesPlacement(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX(),level.getMaxBuildHeight()-20,origin.getZ());
+        int checked=0;
+        for(int type:new int[]{6,20,21,22,23,24,25})for(int variant=0;variant<(type==6?3:2);variant++){
+            for(int rotation=0;rotation<4;rotation++){
+                for(int x=-5;x<=5;x++)for(int z=-5;z<=5;z++){
+                    level.setBlockAndUpdate(c.offset(x,-1,z),Blocks.DIRT.defaultBlockState());
+                    level.setBlockAndUpdate(c.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
+                    for(int y=1;y<=7;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());
+                }
+                var parts=VillageCatalog.build(type,variant,Blocks.OAK_FENCE,Blocks.OAK_LOG,Blocks.OAK_SLAB,Blocks.OAK_STAIRS,Blocks.OAK_TRAPDOOR);
+                var rot=net.minecraft.world.level.block.Rotation.values()[rotation];
+                java.util.Set<BlockPos> unique=new java.util.HashSet<>();
+                for(var part:parts){BlockPos offset=part.offset().rotate(rot);
+                    h.assertTrue(Math.abs(offset.getX())<=3&&Math.abs(offset.getZ())<=3&&offset.getY()>=-1&&offset.getY()<=5,"catalog must stay in the reserved envelope");
+                    h.assertTrue(unique.add(offset),"one final state per coordinate");
+                    level.setBlockAndUpdate(c.offset(offset),part.state().rotate(rot));
+                }
+                for(var part:parts){BlockPos p=c.offset(part.offset().rotate(rot));var expected=part.state().rotate(rot);
+                    h.assertTrue(level.getBlockState(p).is(expected.getBlock()),"catalog block lost after placement: type "+type+" at "+part.offset());
+                    h.assertTrue(level.getBlockState(p).canSurvive(level,p),"unsupported catalog block: type "+type+" at "+part.offset());
+                }
+                // The worker's cardinal approach cells stay clear in every orientation.
+                ConstructorBuilder b=new ConstructorBuilder();for(int[] step:new int[][]{{4,0},{-4,0},{0,4},{0,-4}})
+                    h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.offset(step[0],0,step[1])),"catalog must not enclose its worker");
+                checked++;
+            }
+        }
+        h.assertTrue(checked==60,"exercise all 15 recipes in four orientations");h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void cropsRoadsAndWorkApproaches(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));
         // Forge spawns this template at -60 in a normal world; isolate the outdoor fixture above existing terrain.
@@ -47,13 +78,13 @@ public class ConstructorGameTests {
         for(int type:new int[]{6,11,13}){
             BlockPos approach=(BlockPos)call(b,"approachFor",new Class[]{ServerLevel.class,ConstructorData.class,CompoundTag.class},level,d,task(type,c));
             int distance=Math.max(Math.abs(approach.getX()-c.getX()),Math.abs(approach.getZ()-c.getZ()));
-            h.assertTrue(distance>=(type==6?2:4),"worker must stand outside the footprint of farm/worksite/garden");
+            h.assertTrue(distance>=4,"worker must stand outside the footprint of farm/worksite/garden");
         }
         level.setBlockAndUpdate(c,Blocks.GRASS_BLOCK.defaultBlockState());
         // Exercise the real farm placement queue, then navigation over its output.
         level.setBlockAndUpdate(dirt,Blocks.GRASS_BLOCK.defaultBlockState());d.tasks.clear();d.taskCursor=0;d.tasks.add(task(6,c));
         call(b,"prepareTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
-        for(int tick=0;tick<220&&d.taskCursor==0;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        for(int tick=0;tick<2000&&d.taskCursor==0;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
         h.assertTrue(d.taskCursor==1&&level.getBlockState(c).is(Blocks.WATER),"farm task must finish all its placements");
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.west()),"the farm created by the real queue must remain traversable");
         field(b,"visualX",c.getX()-.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);

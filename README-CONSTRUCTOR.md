@@ -53,6 +53,16 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Catálogo 0.4.0 / test13
+
+- Otro 20% de velocidad de movimiento: 0,1296 bloques/tick. La construcción sigue colocando un bloque por turno.
+- Seis familias nuevas en parcelas despejadas: bancos con jardineras, pérgolas floridas, pozos cubiertos, puestos de mercado, merenderos con sombrilla y estanques. Dos variantes por familia; madera adaptada al bioma y orientación hacia el camino próximo.
+- Tres huertas de 7×7 con lecho cultivado de 5×5, dos cultivos por diseño, riego central, acceso despejado, bordes de madera o piedra, compostador, barril/fardo y faroles. El fondo del riego, pozos y estanques queda sellado.
+- Selección automática después del censo de caminos y puertas; reserva de 7×7×5, separación de 14 bloques entre centros de obras y puesto de trabajo exterior a cuatro bloques. Si falta espacio, omite esa propuesta.
+- Máximo dos construcciones nuevas en 64×64 y hasta seis familias en 128×128, siempre sujeto al espacio disponible. No repite automáticamente obras ya recordadas ni ocupa rutas o entradas reservadas.
+- Pruebas Forge: las quince recetas en cuatro orientaciones, soporte y supervivencia de bloques, aproximación libre y prueba de huerta completa seguida de otro trabajo. Las recetas son adaptaciones con bloques vanilla de las referencias, no copias de los recursos visuales de los autores.
+- Sin comandos adicionales: crear e iniciar regeneran el plan y emplean el catálogo automáticamente.
+
 ## Correcciones 0.3.4 / test12
 
 - Velocidad de desplazamiento 0,108 bloques/tick: otro 20% sobre test11 (0,09). Se mantiene el ritmo de colocación de bloques.
