@@ -31,6 +31,7 @@ public class ConstructorGameTests {
                     for(int y=1;y<=7;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());
                 }
                 var parts=VillageCatalog.build(type,variant,Blocks.OAK_FENCE,Blocks.OAK_LOG,Blocks.OAK_SLAB,Blocks.OAK_STAIRS,Blocks.OAK_TRAPDOOR);
+                if(variant==1)h.assertTrue(!parts.equals(VillageCatalog.build(type,0,Blocks.OAK_FENCE,Blocks.OAK_LOG,Blocks.OAK_SLAB,Blocks.OAK_STAIRS,Blocks.OAK_TRAPDOOR)),"catalog variants must have different blocks");
                 var rot=net.minecraft.world.level.block.Rotation.values()[rotation];
                 java.util.Set<BlockPos> unique=new java.util.HashSet<>();
                 for(var part:parts){BlockPos offset=part.offset().rotate(rot);

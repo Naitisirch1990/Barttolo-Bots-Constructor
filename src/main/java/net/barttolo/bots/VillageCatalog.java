@@ -13,12 +13,13 @@ public final class VillageCatalog {
     public record Part(BlockPos offset,BlockState state) {}
     private final LinkedHashMap<BlockPos,BlockState> blocks=new LinkedHashMap<>();
     private final Block fence,log,slab,stairs,trapdoor;
+    private int style;
     private VillageCatalog(Block fence,Block log,Block slab,Block stairs,Block trapdoor){this.fence=fence;this.log=log;this.slab=slab;this.stairs=stairs;this.trapdoor=trapdoor;}
     private void put(int x,int y,int z,Block b){put(x,y,z,b.defaultBlockState());}
     private void put(int x,int y,int z,BlockState s){blocks.put(new BlockPos(x,y,z),s);}
-    private void leaves(int x,int y,int z,boolean flowering){put(x,y,z,(flowering?Blocks.FLOWERING_AZALEA_LEAVES:Blocks.OAK_LEAVES).defaultBlockState().setValue(LeavesBlock.PERSISTENT,true));}
+    private void leaves(int x,int y,int z,boolean flowering){put(x,y,z,(flowering&&style==0?Blocks.FLOWERING_AZALEA_LEAVES:Blocks.OAK_LEAVES).defaultBlockState().setValue(LeavesBlock.PERSISTENT,true));}
     private void seat(int x,int z){put(x,1,z,stairs.defaultBlockState().setValue(StairBlock.FACING,Direction.NORTH));}
-    private void planter(int x,int z){put(x,0,z,Blocks.MOSS_BLOCK);put(x,1,z,Blocks.AZALEA);}
+    private void planter(int x,int z){put(x,0,z,Blocks.MOSS_BLOCK);put(x,1,z,style==1?Blocks.FLOWERING_AZALEA:Blocks.AZALEA);}
     private void water(int x,int z){put(x,-1,z,Blocks.CLAY);put(x,0,z,Blocks.WATER);}
     private void path(int x,int z){put(x,0,z,Blocks.DIRT_PATH);}
     private void post(int x,int z,int height){for(int y=1;y<=height;y++)put(x,y,z,fence);}
@@ -67,7 +68,7 @@ public final class VillageCatalog {
             }
             case WELL -> {
                 for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++){
-                    if(Math.abs(x)==2||Math.abs(z)==2)put(x,0,z,Blocks.STONE_BRICKS);
+                    if(Math.abs(x)==2||Math.abs(z)==2)put(x,0,z,variant==0?Blocks.STONE_BRICKS:Blocks.MOSSY_STONE_BRICKS);
                     else water(x,z);
                 }
                 for(int x=-1;x<=1;x++)for(int z=-1;z<=1;z++)if(x!=0||z!=0)put(x,1,z,Blocks.STONE_BRICK_WALL);
@@ -102,7 +103,7 @@ public final class VillageCatalog {
         }
     }
     public static List<Part> build(int type,int variant,Block fence,Block log,Block slab,Block stairs,Block trapdoor){
-        VillageCatalog c=new VillageCatalog(fence,log,slab,stairs,trapdoor);
+        VillageCatalog c=new VillageCatalog(fence,log,slab,stairs,trapdoor);c.style=Math.floorMod(variant,2);
         if(type==6)c.farm(Math.floorMod(variant,3));else c.decorate(type,Math.floorMod(variant,2));
         // Ground and supports first; then crops, furniture, roofs and detail. Water is confined by the unchanged ground.
         List<Part> result=new ArrayList<>();c.blocks.forEach((p,s)->result.add(new Part(p,s)));
