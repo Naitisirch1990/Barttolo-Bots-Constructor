@@ -35,7 +35,7 @@ public final class ConstructorLootr {
         if(d.chestCursor>=nx*nz){d.chestsDone=true;d.setDirty();return;}
         int cx=minX+d.chestCursor%nx,cz=minZ+d.chestCursor/nx;
         var chunk=level.getChunk(cx,cz);
-        for(BlockPos p:new ArrayList<>(chunk.getBlockEntities().keySet())){
+        for(BlockPos p:new ArrayList<>(chunk.getBlockEntitiesPos())){
             if(!inside(d,p))continue;
             BlockState original=level.getBlockState(p);
             if(!(original.is(Blocks.CHEST)||original.is(Blocks.TRAPPED_CHEST)))continue;
