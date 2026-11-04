@@ -169,8 +169,11 @@ public class ConstructorGameTests {
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.west()),"the farm created by the real queue must remain traversable");
         field(b,"visualX",c.getX()-.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
         d.tasks.clear();d.taskCursor=0;d.tasks.add(task(0,c.offset(4,0,0)));
+        call(b,"beginNearestTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.taskCursor==1&&d.inaccessibleJobs==0,"already-grassy targets must resolve without a spurious trip or access error");
+        level.setBlockAndUpdate(c.offset(4,0,0),Blocks.DIRT.defaultBlockState());d.tasks.clear();d.taskCursor=0;d.tasks.add(task(0,c.offset(4,0,0)));
         boolean selected=(boolean)call(b,"beginNearestTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
-        h.assertTrue(selected&&d.inaccessibleJobs==0&&d.taskCursor==0,"worker must select another job after standing on its own farm");
+        h.assertTrue(selected&&d.inaccessibleJobs==0&&d.taskCursor==0,"worker must select a needed job after standing on its own farm");
         h.succeed();
     }
 }
