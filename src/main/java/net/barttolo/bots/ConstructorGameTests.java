@@ -32,6 +32,7 @@ public class ConstructorGameTests {
         BlockPos pond=c.offset(8,0,8);level.setBlockAndUpdate(pond,Blocks.WATER.defaultBlockState());
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.below()),"natural stone floors must be traversable");
         field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        CompoundTag nearbyBench=task(20,c.offset(8,0,0));nearbyBench.putString("dimension",d.dimension);d.memory.add(nearbyBench);
         call(b,"planSurfaceRepairs",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
         h.assertTrue(d.holesFound==1&&d.tasks.size()==16,"audit the entire 4x4 nested pit");
         BlockPos partial=c.offset(3,-2,3);level.setBlockAndUpdate(partial,Blocks.GRASS_BLOCK.defaultBlockState());

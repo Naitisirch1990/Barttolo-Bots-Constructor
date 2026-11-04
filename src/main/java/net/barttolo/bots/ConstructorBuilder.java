@@ -869,6 +869,7 @@ public final class ConstructorBuilder {
     }
     private int priority(int type){return switch(type){case CLEAR,FILL,RAMP,RETAIN->0;case PATH->1;case TERRACE,PATCH,GRASS->6;case LAMP,TORCH->2;case FARM,WORKSITE,GARDEN,LOOKOUT,20,21,22,23,24,25->3;case FENCE->9;default->4;};}
     private boolean remembered(ConstructorData d,int type,BlockPos p){
+        if(type==RAMP||type==FILL||type==RETAIN)return terrainFootprintReserved(d,p);
         for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);if(!d.dimension.equals(m.getString("dimension")))continue;
             int dx=m.getInt("x")-p.getX(),dz=m.getInt("z")-p.getZ(),mt=m.getInt("type");
             if(isMacro(mt)&&dx*dx+dz*dz<196)return true;
