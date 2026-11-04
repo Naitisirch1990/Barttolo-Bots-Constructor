@@ -44,3 +44,11 @@ El escaneo busca puertas y cubiertas en las columnas de la parcela, propone un c
 Con al menos dos puertas propone un perímetro rectangular tres bloques por fuera de puertas y tejados próximos. Solo lo construye si cabe completo dentro de la parcela; deja accesos en los cuatro lados y huecos en caminos, edificios, agua y desniveles fuertes. Es un vallado decorativo que puede quedar interrumpido, no una defensa hermética ni un detector perfecto de límites de aldea. `/constructor estado` informa centro aproximado y propuesta de vallado. Si la aldea sale de la parcela, ampliar a 96 o 128.
 
 La madera de farolas, vallado y componentes de jardín/taller sigue el bioma. Una memoria persistente por dimensión conserva posiciones de puntos de interés, huertas, farolas y vallados construidos por el bot y evita duplicar sus huellas al reasignar zonas. Las construcciones siguen siendo plantillas pequeñas, no planos libres ni puestos con NPC. El Constructor orienta la cabeza al trabajar y muestra el bloque o herramienta en la mano. No se agregó deshacer.
+
+## Uso sencillo y farola central (0.3.1)
+
+Solo son necesarios `/constructor crear` (64×64 por defecto, incluye conversión Lootr) y `/constructor iniciar` (escaneo, planificación y ejecución automática). No hace falta auditar ni ejecutar comandos intermedios. Los comandos de diagnóstico/pausa existentes quedan como opcionales; no se añadieron comandos nuevos.
+
+La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste de madera, cuello de diorita y una lámpara de redstone central siempre encendida mediante un bloque de redstone dentro de la cubierta de piedra. La cubierta ocupa una cruz de 3×3 y llega a ocho bloques sobre el suelo. Se valida toda su huella; no necesita orientarse a un lado del camino. Las farolas antiguas no se reemplazan.
+
+Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
