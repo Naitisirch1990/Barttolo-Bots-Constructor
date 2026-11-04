@@ -15,6 +15,11 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - name: Check terrain ramp profiles
+        run: |
+          mkdir -p build/ramp-checks
+          javac -d build/ramp-checks src/main/java/net/barttolo/bots/TerrainRampProfile.java tests/TerrainRampProfileChecks.java
+          java -cp build/ramp-checks TerrainRampProfileChecks
       - name: Build Forge mod
         run: chmod +x gradlew && ./gradlew build -x test
       - uses: actions/upload-artifact@v4

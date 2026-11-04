@@ -14,7 +14,7 @@ public final class ConstructorData extends SavedData {
     public int chestCursor,chestsFound,chestsConverted,chestsFailed,chestsBoundary;
     public boolean chestsDone,chestsPaused;
     public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag();
-    public String villageReport="pendiente",lastReport="";
+    public String villageReport="pendiente",lastReport="",landscapeReport="pendiente";
     public CompoundTag completed=new CompoundTag(),deferred=new CompoundTag();
     public int inaccessibleJobs,invalidJobs,failedPlacements,partialJobs;
     public final ListTag pendingExamples=new ListTag();
@@ -37,7 +37,7 @@ public final class ConstructorData extends SavedData {
             d.cursor=0;d.taskCursor=0;d.scanning=true;d.finished=false;
         }
         d.doors.addAll(tag.getList("doors",10));d.roofs.addAll(tag.getList("roofs",10));d.memory.addAll(tag.getList("memory",10));d.villageReport=tag.getString("villageReport");
-        d.lastReport=tag.getString("lastReport");d.completed=tag.getCompound("completed");d.deferred=tag.getCompound("deferred");d.inaccessibleJobs=tag.getInt("inaccessibleJobs");d.invalidJobs=tag.getInt("invalidJobs");d.failedPlacements=tag.getInt("failedPlacements");d.partialJobs=tag.getInt("partialJobs");d.pendingExamples.addAll(tag.getList("pendingExamples",10));
+        d.landscapeReport=tag.getString("landscapeReport");d.lastReport=tag.getString("lastReport");d.completed=tag.getCompound("completed");d.deferred=tag.getCompound("deferred");d.inaccessibleJobs=tag.getInt("inaccessibleJobs");d.invalidJobs=tag.getInt("invalidJobs");d.failedPlacements=tag.getInt("failedPlacements");d.partialJobs=tag.getInt("partialJobs");d.pendingExamples.addAll(tag.getList("pendingExamples",10));
         return d;
     }
     public CompoundTag task(int index){return tasks.getCompound(index);}
@@ -50,7 +50,7 @@ public final class ConstructorData extends SavedData {
         tag.putBoolean("configured",configured);tag.putBoolean("active",active);tag.putBoolean("scanning",scanning);tag.putBoolean("finished",finished);tag.putBoolean("auditOnly",auditOnly);
         tag.putInt("chestCursor",chestCursor);tag.putInt("chestsFound",chestsFound);tag.putInt("chestsConverted",chestsConverted);tag.putInt("chestsFailed",chestsFailed);tag.putInt("chestsBoundary",chestsBoundary);tag.putBoolean("chestsDone",chestsDone);tag.putBoolean("chestsPaused",chestsPaused);
         tag.put("doors",doors.copy());tag.put("roofs",roofs.copy());tag.put("memory",memory.copy());tag.putString("villageReport",villageReport);
-        tag.putString("lastReport",lastReport);tag.put("completed",completed.copy());tag.put("deferred",deferred.copy());tag.putInt("inaccessibleJobs",inaccessibleJobs);tag.putInt("invalidJobs",invalidJobs);tag.putInt("failedPlacements",failedPlacements);tag.putInt("partialJobs",partialJobs);tag.put("pendingExamples",pendingExamples.copy());
+        tag.putString("landscapeReport",landscapeReport);tag.putString("lastReport",lastReport);tag.put("completed",completed.copy());tag.put("deferred",deferred.copy());tag.putInt("inaccessibleJobs",inaccessibleJobs);tag.putInt("invalidJobs",invalidJobs);tag.putInt("failedPlacements",failedPlacements);tag.putInt("partialJobs",partialJobs);tag.put("pendingExamples",pendingExamples.copy());
         tag.put("tasks",tasks.copy());return tag;
     }
 }

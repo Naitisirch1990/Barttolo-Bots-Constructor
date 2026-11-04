@@ -32,7 +32,7 @@ import java.util.*;
 /** Visible, deliberate builder: stationary survey first, then grounded travel and work. */
 public final class ConstructorBuilder {
     private static final int GRASS=0, TERRACE=1, FLOWER=2, SAPLING=3, LAMP=4,
-        PATCH=5, FARM=6, POT=7, TORCH=8, LEAVES=9, FILL=10, WORKSITE=11, EDGE_FLOWER=12, GARDEN=13, CLEAR=14, FENCE=15, PATH=16;
+        PATCH=5, FARM=6, POT=7, TORCH=8, LEAVES=9, FILL=10, WORKSITE=11, EDGE_FLOWER=12, GARDEN=13, CLEAR=14, FENCE=15, PATH=16, RAMP=17, RETAIN=18, LOOKOUT=19;
     private static final int SCAN_BATCH=48, LAMP_SPACING=8, OPEN_LAMP_SPACING=12, WORK_DELAY_TICKS=10;
     private static final double WALK_SPEED=.075;
 
@@ -139,14 +139,15 @@ public final class ConstructorBuilder {
             }
             if(!floor.is(Blocks.GRASS_BLOCK)||!level.getFluidState(ground.above()).isEmpty())continue;
             int seed=Math.floorMod(x*73428767 ^ z*912931,1000);
-            if(seed<7&&clearForTree(level,ground)){
+            int distance=nearestHouseDistance(d,ground);int treeChance=distance>24?2:distance>14?4:7;int flowerChance=distance>24?4:distance>14?8:16;
+            if(seed<treeChance&&clearForTree(level,ground)){
                 addTask(d,SAPLING,ground,0);
-            }else if(seed>=24&&seed<40&&clearForPlant(level,ground)){
+            }else if(seed>=24&&seed<24+flowerChance&&clearForPlant(level,ground)){
                 addTask(d,FLOWER,ground,0);
             }
         }
         d.setDirty();
-        if(d.cursor>=total){planVillage(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly){d.active=false;announce(level.getServer(),level,"Auditoría lista: "+d.holesFound+" huecos, "+d.roadsFound+" columnas de camino y "+d.stoneFound+" bloques de piedra aislados; "+d.tasks.size()+" acciones propuestas. No cambié bloques. Revisá /constructor estado y usa /constructor iniciar para ejecutar el plan.");}d.setDirty();}
+        if(d.cursor>=total){planVillage(level,d);planLandscape(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly){d.active=false;announce(level.getServer(),level,"Auditoría lista: "+d.holesFound+" huecos, "+d.roadsFound+" columnas de camino y "+d.stoneFound+" bloques de piedra aislados; "+d.tasks.size()+" acciones propuestas. No cambié bloques. Revisá /constructor estado y usa /constructor iniciar para ejecutar el plan.");}d.setDirty();}
     }
 
     private void planRoadLamp(ServerLevel level,ConstructorData d,BlockPos road){
@@ -182,6 +183,8 @@ public final class ConstructorBuilder {
     private void addTask(ConstructorData d,int type,BlockPos p,int direction){
         String key=type+":"+p.getX()+":"+p.getY()+":"+p.getZ();
         if(!planned.add(key))return;
+        if(type==FLOWER||type==EDGE_FLOWER||type==SAPLING||type==LAMP){int limit=type==SAPLING?Math.max(3,d.width*d.width/400):type==LAMP?Math.max(6,d.width*d.width/140):Math.max(12,d.width*d.width/90);int count=0;for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int tt=t.getInt("type");if(tt==type||(type==FLOWER||type==EDGE_FLOWER)&&(tt==FLOWER||tt==EDGE_FLOWER)){count++;int dx=t.getInt("x")-p.getX(),dz=t.getInt("z")-p.getZ();if(dx*dx+dz*dz<(type==SAPLING?49:4)){planned.remove(key);return;}}}if(count>=limit){planned.remove(key);return;}}
+
         if(remembered(d,type,p)){planned.remove(key);return;}
         if(type==LAMP){
             for(int i=0;i<d.tasks.size();i++){
@@ -262,7 +265,9 @@ public final class ConstructorBuilder {
         if(!level.hasChunkAt(ground)||!isOutdoorGround(level,ground)){completeTask(d,true);return;}
         preparing=true;taskPlacedStart=d.placed;taskPlacementFailures=0;
         if(actor!=null)face(actor,x+.5-visualX,z+.5-visualZ);movementPacketPending=true;
-        if(type==CLEAR){if(isDebris(level,ground))pending.add(new Placement(ground,Blocks.AIR.defaultBlockState(),true));}
+        if(type==RAMP||type==RETAIN){if(validEarthColumn(level,d,ground,direction)){for(int y=ground.getY()+1;y<=direction;y++)pending.add(new Placement(new BlockPos(x,y,z),type==RETAIN?Blocks.COBBLESTONE.defaultBlockState():y==direction?Blocks.GRASS_BLOCK.defaultBlockState():Blocks.DIRT.defaultBlockState()));}}
+        else if(type==LOOKOUT){if(canLookout(level,d,ground))planLookout(level,ground,direction);}
+        else if(type==CLEAR){if(isDebris(level,ground))pending.add(new Placement(ground,Blocks.AIR.defaultBlockState(),true));}
         else if(type==FENCE){if(canFence(level,d,ground))pending.add(new Placement(ground.above(),villageFence(level,ground).defaultBlockState()));}
         else if(type==PATH){if(canLink(level,d,ground))pending.add(new Placement(ground,Blocks.DIRT_PATH.defaultBlockState(),true));}
         else if(type==GRASS){if(level.getBlockState(ground).is(Blocks.DIRT))pending.add(new Placement(ground,Blocks.GRASS_BLOCK.defaultBlockState(),true));}
@@ -442,7 +447,7 @@ public final class ConstructorBuilder {
         pending.add(new Placement(c.offset(1,1,3),Blocks.SCAFFOLDING.defaultBlockState()));
         pending.add(new Placement(c.offset(2,0,3),Blocks.BARREL.defaultBlockState(),true));
     }
-    private void completeTask(ConstructorData d,boolean skipped){preparing=false;if(d.taskCursor<d.tasks.size()){CompoundTag job=d.task(d.taskCursor);if(skipped){d.invalidJobs++;deferJob(d,job,"sitio cambió o dejó de cumplir condiciones");}else if(taskPlacementFailures>0){d.partialJobs++;deferJob(d,job,"colocación parcial: bloques ocupados o rechazados");}else if(d.placed>taskPlacedStart){String key=Integer.toString(job.getInt("type"));d.completed.putInt(key,d.completed.getInt(key)+1);}}if(!skipped&&taskPlacementFailures==0&&d.placed>taskPlacedStart&&d.taskCursor<d.tasks.size()){CompoundTag t=d.task(d.taskCursor);int type=t.getInt("type");if(type==LAMP||type==FARM||type==WORKSITE||type==GARDEN||type==FENCE){CompoundTag m=t.copy();m.putString("dimension",d.dimension);d.memory.add(m);}}if(skipped)d.skipped++;d.taskCursor++;placementDelay=0;pending.clear();route.clear();routeIndex=0;walking=false;d.setDirty();}
+    private void completeTask(ConstructorData d,boolean skipped){preparing=false;if(d.taskCursor<d.tasks.size()){CompoundTag job=d.task(d.taskCursor);if(skipped){d.invalidJobs++;deferJob(d,job,"sitio cambió o dejó de cumplir condiciones");}else if(taskPlacementFailures>0){d.partialJobs++;deferJob(d,job,"colocación parcial: bloques ocupados o rechazados");}else if(d.placed>taskPlacedStart){String key=Integer.toString(job.getInt("type"));d.completed.putInt(key,d.completed.getInt(key)+1);}}if(!skipped&&taskPlacementFailures==0&&d.placed>taskPlacedStart&&d.taskCursor<d.tasks.size()){CompoundTag t=d.task(d.taskCursor);int type=t.getInt("type");if(type==LAMP||type==FARM||type==WORKSITE||type==GARDEN||type==LOOKOUT||type==FENCE){CompoundTag m=t.copy();m.putString("dimension",d.dimension);d.memory.add(m);}}if(skipped)d.skipped++;d.taskCursor++;placementDelay=0;pending.clear();route.clear();routeIndex=0;walking=false;d.setDirty();}
 
     private List<BlockPos> findPath(ServerLevel level,ConstructorData d,BlockPos start,BlockPos goal){
         int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2,maxX=minX+d.width-1,maxZ=minZ+d.width-1;
@@ -465,7 +470,7 @@ public final class ConstructorBuilder {
     private BlockPos approachFor(ServerLevel level,ConstructorData d,CompoundTag task){
         BlockPos target=new BlockPos(task.getInt("x"),task.getInt("y"),task.getInt("z"));
         int type=task.getInt("type"),direction=task.getInt("direction");
-        int[][] dirs=type==LAMP?new int[][]{{0,2},{0,-2},{2,0},{-2,0},{0,3},{0,-3},{3,0},{-3,0}}:new int[][]{{1,0},{-1,0},{0,1},{0,-1}};
+        int[][] dirs=(type==RAMP||type==RETAIN)?new int[][]{{1,0},{-1,0},{0,1},{0,-1},{2,0},{-2,0},{0,2},{0,-2}}:type==LAMP?new int[][]{{0,2},{0,-2},{2,0},{-2,0},{0,3},{0,-3},{3,0},{-3,0}}:new int[][]{{1,0},{-1,0},{0,1},{0,-1}};
         BlockPos best=null;double bestDistance=Double.MAX_VALUE;
         for(int[] dir:dirs){BlockPos p=surface(level,target.getX()+dir[0],target.getZ()+dir[1]);if(p==null)continue;
             double dx=p.getX()+.5-visualX,dz=p.getZ()+.5-visualZ,dist=dx*dx+dz*dz;
@@ -703,11 +708,11 @@ public final class ConstructorBuilder {
         net.minecraft.world.level.block.Rotation rot=Math.abs(dx)>Math.abs(dz)?(dx>0?net.minecraft.world.level.block.Rotation.COUNTERCLOCKWISE_90:net.minecraft.world.level.block.Rotation.CLOCKWISE_90):(dz<0?net.minecraft.world.level.block.Rotation.CLOCKWISE_180:net.minecraft.world.level.block.Rotation.NONE);
         ArrayDeque<Placement> rotated=new ArrayDeque<>();for(Placement p:pending){BlockPos relative=p.pos().subtract(center).rotate(rot);rotated.add(new Placement(center.offset(relative),p.state().rotate(rot),p.force()));}pending.clear();pending.addAll(rotated);
     }
-    private int priority(int type){return switch(type){case CLEAR,FILL,TERRACE,PATCH,GRASS->0;case PATH->1;case LAMP,TORCH->2;case FARM,WORKSITE,GARDEN->3;case FENCE->5;default->4;};}
+    private int priority(int type){return switch(type){case CLEAR,FILL,TERRACE,PATCH,GRASS,RAMP,RETAIN->0;case PATH->1;case LAMP,TORCH->2;case FARM,WORKSITE,GARDEN,LOOKOUT->3;case FENCE->5;default->4;};}
     private boolean remembered(ConstructorData d,int type,BlockPos p){
         for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);if(!d.dimension.equals(m.getString("dimension")))continue;
             int dx=m.getInt("x")-p.getX(),dz=m.getInt("z")-p.getZ(),mt=m.getInt("type");
-            if((mt==GARDEN||mt==WORKSITE||mt==FARM)&&dx*dx+dz*dz<49)return true;
+            if((mt==GARDEN||mt==WORKSITE||mt==FARM||mt==LOOKOUT)&&dx*dx+dz*dz<49)return true;
             if(mt==type&&dx==0&&dz==0)return true;
         }return false;
     }
@@ -734,7 +739,8 @@ public final class ConstructorBuilder {
             if(state.getBlock() instanceof DoorBlock&&state.getValue(DoorBlock.HALF)==DoubleBlockHalf.LOWER){CompoundTag t=new CompoundTag();t.putInt("x",x);t.putInt("y",y);t.putInt("z",z);t.putInt("facing",state.getValue(DoorBlock.FACING).get2DDataValue());d.doors.add(t);}
         }
     }
-    private boolean canLink(ServerLevel level,ConstructorData d,BlockPos p){return inside(d,p)&&isWalkableGround(level,p)&&!isNearBuilding(level,p)&&
+    private boolean reservedCrop(ConstructorData d,BlockPos p){for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(t.getInt("type")==FARM&&Math.abs(t.getInt("x")-p.getX())<=1&&Math.abs(t.getInt("z")-p.getZ())<=1)return true;}return false;}
+    private boolean canLink(ServerLevel level,ConstructorData d,BlockPos p){return !reservedCrop(d,p)&&inside(d,p)&&isWalkableGround(level,p)&&!isNearBuilding(level,p)&&
         (level.getBlockState(p).is(Blocks.GRASS_BLOCK)||level.getBlockState(p).is(Blocks.DIRT));}
     private boolean canFence(ServerLevel level,ConstructorData d,BlockPos p){
         if(!inside(d,p)||!isWalkableGround(level,p)||hasRoadNear(level,p.getX(),p.getZ(),1)||isNearBuilding(level,p))return false;
@@ -768,15 +774,75 @@ public final class ConstructorBuilder {
     }
 
 
-    private void resetReport(ConstructorData d){d.lastReport="";d.completed=new CompoundTag();d.deferred=new CompoundTag();d.pendingExamples.clear();d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;}
-    private String jobName(int type){return switch(type){case CLEAR->"limpieza";case FILL,TERRACE->"relleno";case PATCH,GRASS->"césped";case PATH->"caminos";case LAMP,TORCH->"iluminación";case FARM->"huertas";case GARDEN->"jardines";case WORKSITE->"talleres";case FENCE->"vallado";default->"plantas/decoración";};}
+
+    private int nearestHouseDistance(ConstructorData d,BlockPos p){int best=1000;for(int i=0;i<d.doors.size();i++){CompoundTag t=d.doors.getCompound(i);best=Math.min(best,Math.max(Math.abs(t.getInt("x")-p.getX()),Math.abs(t.getInt("z")-p.getZ())));}return best;}
+    private boolean earth(BlockState s){return s.is(Blocks.GRASS_BLOCK)||s.is(Blocks.DIRT)||s.is(Blocks.COARSE_DIRT)||s.is(Blocks.STONE)||s.is(Blocks.ANDESITE)||s.is(Blocks.GRANITE)||s.is(Blocks.DIORITE);}
+    private boolean validEarthColumn(ServerLevel level,ConstructorData d,BlockPos p,int target){
+        for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int type=t.getInt("type");if(type==FARM||type==GARDEN||type==WORKSITE){int dx=t.getInt("x")-p.getX(),dz=t.getInt("z")-p.getZ();if(dx*dx+dz*dz<36)return false;}}
+        if(!inside(d,p)||target<=p.getY()||target-p.getY()>10||target>=level.getMaxBuildHeight()-2||!earth(level.getBlockState(p))||level.getBlockEntity(p)!=null)return false;
+        if(!level.canSeeSky(p.above())||!level.getFluidState(p).isEmpty())return false;
+        for(int y=p.getY()+1;y<=target+2;y++){BlockPos q=new BlockPos(p.getX(),y,p.getZ());if(!level.getBlockState(q).isAir()||!level.getFluidState(q).isEmpty()||level.getBlockEntity(q)!=null)return false;}
+        // No modifications alongside a doorway or an existing foundation.
+        for(int i=0;i<d.doors.size();i++){CompoundTag door=d.doors.getCompound(i);if(Math.abs(door.getInt("x")-p.getX())+Math.abs(door.getInt("z")-p.getZ())<3)return false;}
+        for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos q=p.relative(dir);for(int y=p.getY()+1;y<=target;y++){BlockState state=level.getBlockState(new BlockPos(q.getX(),y,q.getZ()));if(!state.isAir()&&!earth(state))return false;}}
+        return !remembered(d,RAMP,p);
+    }
+    private void planLandscape(ServerLevel level,ConstructorData d){
+        for(int i=d.tasks.size()-1;i>=0;i--){CompoundTag t=d.task(i);int type=t.getInt("type");if(type==FLOWER||type==SAPLING){int distance=nearestHouseDistance(d,new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z")));int divisor=distance>24?4:distance>14?2:1;if(Math.floorMod(t.getInt("x")*31+t.getInt("z")*17,divisor)!=0)d.tasks.remove(i);}}
+        if(d.doors.size()<2){d.landscapeReport="sin aldea suficiente para modificar bordes";return;}
+        int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2,ramps=0,walls=0,rejected=0,lookouts=0;
+        List<BlockPos> anchors=new ArrayList<>();int max=Math.max(1,d.width/32);
+        for(int x=minX+3;x<minX+d.width-3;x++)for(int z=minZ+3;z<minZ+d.width-3;z++){
+            BlockPos top=surface(level,x,z);if(top==null||!level.getBlockState(top).is(Blocks.GRASS_BLOCK))continue;
+            int distance=nearestHouseDistance(d,top);if(distance<6||distance>28)continue;
+            boolean near=false;for(BlockPos a:anchors)if(Math.abs(a.getX()-x)+Math.abs(a.getZ()-z)<14)near=true;if(near)continue;
+            for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos low=rawSurface(level,x+dir.getStepX(),z+dir.getStepZ());if(low==null)continue;int drop=top.getY()-low.getY();if(drop<4||drop>10)continue;
+                if(ramps<max&&planRamp(level,d,top,dir,drop)){anchors.add(top);ramps++;break;}
+                rejected++;
+                if(walls<max&&drop<=6&&distance<=10&&validEarthColumn(level,d,low,top.getY()-1)){addTask(d,RETAIN,low,top.getY()-1);walls++;anchors.add(top);break;}
+                BlockPos lookout=surface(level,top.getX()-dir.getStepX(),top.getZ()-dir.getStepZ());
+                if(lookouts<1&&lookout!=null&&canLookout(level,d,lookout)){addTask(d,LOOKOUT,lookout,dir.get2DDataValue());lookouts++;anchors.add(top);break;}
+            }
+        }
+        int farmLinks=0;for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(t.getInt("type")!=FARM)continue;int before=d.tasks.size();for(Direction dir:Direction.Plane.HORIZONTAL){CompoundTag entrance=new CompoundTag();entrance.putInt("x",t.getInt("x")+dir.getStepX()*2);entrance.putInt("y",t.getInt("y")+1);entrance.putInt("z",t.getInt("z")+dir.getStepZ()*2);entrance.putInt("facing",dir.get2DDataValue());planEntranceLink(level,d,entrance);if(d.tasks.size()>before){farmLinks++;break;}}}
+        d.landscapeReport=ramps+" pendientes, "+walls+" apoyos de contención, "+lookouts+" miradores, "+farmLinks+" accesos a cultivos; "+rejected+" candidatos de pendiente descartados por espacio/obstáculos. Relleno máximo 10 bloques, sin excavar laderas";
+    }
+    private boolean planRamp(ServerLevel level,ConstructorData d,BlockPos top,Direction forward,int drop){
+        Direction side=forward.getClockWise();List<BlockPos> bases=new ArrayList<>();List<Integer> heights=new ArrayList<>();
+        for(int step=1;step<=drop*2;step++)for(int lane=-1;lane<=1;lane++){
+            int target=TerrainRampProfile.height(top.getY(),drop,step,lane);BlockPos probe=top.relative(forward,step).relative(side,lane),base=rawSurface(level,probe.getX(),probe.getZ());
+            if(base==null||!inside(d,base)||!earth(level.getBlockState(base))||!isOutdoorGround(level,base))return false;
+            if(base.getY()>target)return false;
+            if(base.getY()==target)continue;
+            if(!validEarthColumn(level,d,base,target))return false;
+            bases.add(base);heights.add(target);
+        }
+        if(bases.isEmpty())return false;
+        for(int i=0;i<bases.size();i++)addTask(d,RAMP,bases.get(i),heights.get(i));return true;
+    }
+    private boolean canLookout(ServerLevel level,ConstructorData d,BlockPos center){
+        if(remembered(d,LOOKOUT,center))return false;
+        for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int type=t.getInt("type");if(type==RAMP||type==RETAIN||type==GARDEN||type==WORKSITE||type==FARM){int dx=t.getInt("x")-center.getX(),dz=t.getInt("z")-center.getZ();if(dx*dx+dz*dz<64)return false;}}
+        for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++){BlockPos p=surface(level,center.getX()+dx,center.getZ()+dz);if(p==null||!inside(d,p)||p.getY()!=center.getY()||!level.getBlockState(p).is(Blocks.GRASS_BLOCK)||isNearBuilding(level,p)||isRoad(level,p))return false;}
+        return true;
+    }
+    private void planLookout(ServerLevel level,BlockPos center,int facing){
+        Direction view=Direction.from2DDataValue(facing),side=view.getClockWise();
+        for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++)pending.add(new Placement(center.offset(dx,0,dz),villageWood(level,center,"planks").defaultBlockState(),true));
+        for(int lane=-1;lane<=1;lane++)pending.add(new Placement(center.relative(view).relative(side,lane).above(),villageFence(level,center).defaultBlockState()));
+        pending.add(new Placement(center.above(),villageWood(level,center,"stairs").defaultBlockState().setValue(net.minecraft.world.level.block.StairBlock.FACING,view)));
+        pending.add(new Placement(center.relative(view).relative(side).above(2),Blocks.LANTERN.defaultBlockState()));
+    }
+
+    private void resetReport(ConstructorData d){d.landscapeReport="pendiente";d.lastReport="";d.completed=new CompoundTag();d.deferred=new CompoundTag();d.pendingExamples.clear();d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;}
+    private String jobName(int type){return switch(type){case RAMP->"pendientes";case RETAIN->"contención";case LOOKOUT->"miradores";case CLEAR->"limpieza";case FILL,TERRACE->"relleno";case PATCH,GRASS->"césped";case PATH->"caminos";case LAMP,TORCH->"iluminación";case FARM->"huertas";case GARDEN->"jardines";case WORKSITE->"talleres";case FENCE->"vallado";default->"plantas/decoración";};}
     private void deferJob(ConstructorData d,CompoundTag job,String reason){String key=Integer.toString(job.getInt("type"));d.deferred.putInt(key,d.deferred.getInt(key)+1);if(d.pendingExamples.size()<4){CompoundTag example=job.copy();example.putString("reason",reason);d.pendingExamples.add(example);}}
     private String completionReport(ConstructorData d){
         Map<String,Integer> done=new LinkedHashMap<>(),left=new LinkedHashMap<>();
         for(String key:d.completed.getAllKeys())done.merge(jobName(Integer.parseInt(key)),d.completed.getInt(key),Integer::sum);
         for(String key:d.deferred.getAllKeys())left.merge(jobName(Integer.parseInt(key)),d.deferred.getInt(key),Integer::sum);
         StringBuilder report=new StringBuilder("Trabajo finalizado en ").append(d.width).append("×").append(d.width).append(": ").append(d.placed).append(" cambios de bloque.\nCompletado (tareas): ").append(done.isEmpty()?"sin cambios elegibles":done).append(". Lootr: ").append(d.chestsConverted).append(" cofres.\nPendiente: ").append(left.isEmpty()?"ninguna tarea propuesta quedó pendiente":left).append(". Sin acceso: ").append(d.inaccessibleJobs).append("; condiciones cambiadas: ").append(d.invalidJobs).append("; trabajos parciales: ").append(d.partialJobs).append("; colocaciones fallidas: ").append(d.failedPlacements).append('.');
-        report.append("\nAldea: ").append(d.villageReport).append('.');
+        report.append("\nAldea: ").append(d.villageReport).append('.').append(" Paisaje: ").append(d.landscapeReport).append('.');
         if(d.roadsFound==0)report.append(" No reconocí caminos: revisar los materiales del sendero.");
         if(d.doors.size()<2)report.append(" No hubo suficientes accesos para proponer un perímetro.");
         if(d.villageReport.contains("fuera de parcela"))report.append(" Ampliar la próxima parcela para incluir todas las casas.");

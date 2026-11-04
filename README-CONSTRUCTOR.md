@@ -52,3 +52,13 @@ Solo son necesarios `/constructor crear` (64×64 por defecto, incluye conversió
 La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste de madera, cuello de diorita y una lámpara de redstone central siempre encendida mediante un bloque de redstone dentro de la cubierta de piedra. La cubierta ocupa una cruz de 3×3 y llega a ocho bloques sobre el suelo. Se valida toda su huella; no necesita orientarse a un lado del camino. Las farolas antiguas no se reemplazan.
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
+
+## Paisaje 0.3.2
+
+Sin comandos nuevos: al finalizar el escaneo se buscan cortes exteriores cerca de las casas. Las pendientes propuestas rellenan cortes de 4–10 bloques con un descenso por cada dos bloques horizontales y hombros de césped. Necesitan una franja seca y libre de tres bloques de ancho y hasta 20 de largo, completamente dentro de la parcela; no excavan montañas, cuevas ni construcciones. Se limitan a 2 pendientes por 64×64 (4 por 128×128), separadas, y se ejecutan columna por columna. No todos los precipicios serán corregibles.
+
+En cortes menores de hasta seis bloques se pueden proponer apoyos cortos de contención de piedra, por fuera de la ladera. Si la rampa no cabe, se evalúa un mirador pequeño en terreno plano elevado, con banco, baranda y luz, máximo uno por parcela. Los accesos cortos a las huertas propuestas se buscan desde fuera de sus cultivos; no se sustituyen bloques de cultivo por camino.
+
+La vegetación se reduce al alejarse de los accesos de las casas y se limita el número de flores, árboles y farolas por superficie. Esto distribuye los detalles y conserva claros. El informe automático incluye pendientes, contención, miradores, accesos a cultivos y candidatos descartados. La accesibilidad puede impedir tareas y se informa al terminar.
+
+Verificación: las pruebas de perfil comprueban pendientes, hombros, llegada al nivel inferior y rechazo de alturas fuera de los límites. La compilación de Forge comprueba integración; la construcción visual en un mundo real requiere prueba en el juego.
