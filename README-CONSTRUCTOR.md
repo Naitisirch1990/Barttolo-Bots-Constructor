@@ -56,6 +56,7 @@ Al terminar entrega automáticamente un informe con tareas completadas por categ
 ## Accesos 0.4.3 / test16
 
 - Mantiene la velocidad de test15. La velocidad no controla las condiciones de escaneo, colocación ni pausa.
+- Al crear desde el aire, toma la altura del terreno para la navegación.
 - Navegación a la altura del suelo próximo, incluyendo pavimento, losas y escalones. Limita la elevación de superficies fabricadas según el terreno cercano para no usar un tejado como atajo. Los pies siguen la altura de las losas y caminos.
 - Los trabajos de camino pueden hacerse desde posiciones cercanas, diagonales o sobre el propio tramo, en vez de exigir uno de cuatro vecinos inmediatos. Evita trabajar a través de muros en los puntos intermedios.
 - Si sigue faltando acceso, el informe incluye el material de suelo de la tarea y cuántas posiciones transitables comprobó. Conserva los pendientes para iniciar.

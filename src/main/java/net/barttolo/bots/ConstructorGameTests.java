@@ -40,6 +40,11 @@ public class ConstructorGameTests {
         h.assertTrue(Math.abs((double)call(b,"footHeight",new Class[]{ServerLevel.class,BlockPos.class},level,slab)-(slab.getY()+.5))<.001,"feet must follow the slab surface");
         BlockPos underRoof=c.offset(-8,0,8);level.setBlockAndUpdate(underRoof.above(3),Blocks.OAK_PLANKS.defaultBlockState());
         h.assertTrue(underRoof.equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,underRoof.getX(),underRoof.getZ(),c.getY())),"walk below an eave instead of selecting the highest roof block");
+        var source=level.getServer().createCommandSourceStack().withPermission(4).withLevel(level).withPosition(new net.minecraft.world.phys.Vec3(c.getX()+.5,c.getY()+12,c.getZ()+.5));
+        try{
+            h.assertTrue(b.create(source,32)==1,"allow assigning the village while the administrator is flying");
+            h.assertTrue(ConstructorData.get(level.getServer()).centerY==c.getY()+1,"navigation height must use ground, not the flying administrator's height");
+        }finally{b.cancel(source);}
         h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)
