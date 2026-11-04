@@ -9,7 +9,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 /** Persistent assignment, stationary scan cursor, work queue and progress. */
 public final class ConstructorData extends SavedData {
     public String dimension="minecraft:overworld";
-    public int centerX,centerY,centerZ,width=32,cursor,taskCursor,placed,skipped,holesFound,roadsFound,stoneFound;
+    public int centerX,centerY,centerZ,width=64,cursor,taskCursor,placed,skipped,holesFound,roadsFound,stoneFound;
     public boolean configured,active,scanning=true,finished,auditOnly;
     public final ListTag tasks=new ListTag();
 
@@ -20,7 +20,7 @@ public final class ConstructorData extends SavedData {
     public static ConstructorData load(CompoundTag tag){
         ConstructorData d=new ConstructorData();d.dimension=tag.getString("dimension");
         d.centerX=tag.getInt("centerX");d.centerY=tag.getInt("centerY");d.centerZ=tag.getInt("centerZ");
-        d.width=tag.contains("width")?tag.getInt("width"):32;d.cursor=tag.getInt("cursor");d.taskCursor=tag.getInt("taskCursor");
+        d.width=tag.contains("width")?tag.getInt("width"):64;d.cursor=tag.getInt("cursor");d.taskCursor=tag.getInt("taskCursor");
         d.placed=tag.getInt("placed");d.skipped=tag.getInt("skipped");d.holesFound=tag.getInt("holesFound");d.roadsFound=tag.getInt("roadsFound");d.stoneFound=tag.getInt("stoneFound");d.configured=tag.getBoolean("configured");
         d.active=tag.getBoolean("active");d.finished=tag.getBoolean("finished");d.auditOnly=tag.getBoolean("auditOnly");
         if(tag.contains("scanning")){

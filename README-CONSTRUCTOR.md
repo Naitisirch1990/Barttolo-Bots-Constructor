@@ -4,7 +4,7 @@ Mod de Minecraft Java 1.20.1 / Forge 47.4.10. El Constructor analiza una parcela
 
 ## Comandos (operador)
 
-- `/constructor crear` asigna 32×32 bloques alrededor de tu posición.
+- `/constructor crear` asigna 64×64 bloques alrededor de tu posición.
 - `/constructor crear 64` asigna una zona 64×64. El ancho permitido es 32–128.
 - `/constructor auditar` revisa la parcela asignada sin cambiar ningún bloque; `/constructor estado` muestra los hallazgos. Luego usa `/constructor iniciar` para ejecutar las tareas detectadas.
 - También están `/constructor iniciar`, `/constructor pausar`, `/constructor estado`, `/constructor cancelar`.
@@ -19,10 +19,12 @@ La parcela se centra donde se ejecuta `crear`.
 4. Cubre tierra expuesta y rellena los huecos detectados desde abajo, con tierra y una capa superior de césped. Puede reemplazar piedra aislada en un césped uniforme; no modifica paredes ni bloques con entidad.
 5. Añade flores y árboles jóvenes, macetas junto a paredes a los lados de puertas, antorchas en esas zonas cuando falta luz y hojas persistentes en esquinas de madera.
 6. En una parcela despejada puede construir una huerta pequeña de 3×3 con agua central y ocho cultivos. La obra se hace bloque a bloque, visible y sin recoger ni soltar objetos.
-7. La farola usa base de ladrillos de piedra, poste y brazos de valla de roble, con dos faroles colgantes. Sigue tramos de camino conectados y separa las farolas al menos ocho bloques; en zonas sin caminos usa una retícula regular de doce bloques.
-8. Guarda el análisis, las tareas y el progreso en los datos del mundo.
+7. Decora los bordes despejados de los caminos con flores espaciadas a intervalos regulares; deja libre el paso.
+8. La farola usa base de ladrillos de piedra, poste y brazos de valla de roble, con dos faroles colgantes. Sigue tramos de camino conectados y separa las farolas al menos ocho bloques; en zonas sin caminos usa una retícula regular de doce bloques.
+9. En parcelas de 64×64 o mayores puede crear una esquina de obra: cobertizo abierto, banco de trabajo, yunque, alto horno, barriles, andamios y acopio de troncos.
+10. Guarda el análisis, las tareas y el progreso en los datos del mundo.
 
-Las huertas se limitan a una por parcela hasta 64×64 y dos en 128×128. Para revisar lo que encontró antes de cambiar bloques, ejecuta `/constructor auditar` y consulta `/constructor estado`: muestra columnas de camino, huecos, piedra aislada y acciones propuestas. Al terminar, `/constructor iniciar` ejecuta las tareas. Empieza con 32×32 en una copia del mundo. La ruta evita tejados y superficies bajo techo; si no encuentra suelo abierto y conectado hasta una tarea, la omite y la cuenta en `/constructor estado`.
+Las huertas se limitan a una por parcela hasta 64×64 y dos en 128×128. Para revisar lo que encontró antes de cambiar bloques, ejecuta `/constructor auditar` y consulta `/constructor estado`: muestra columnas de camino, huecos, piedra aislada y acciones propuestas. Al terminar, `/constructor iniciar` ejecuta las tareas. Prueba primero en una copia del mundo. La ruta evita tejados y superficies bajo techo; si no encuentra suelo abierto y conectado hasta una tarea, la omite y la cuenta en `/constructor estado`.
 
 ## Compilar
 

@@ -142,7 +142,7 @@ public final class Bots {
                 }))));
         dispatcher.register(Commands.literal("constructor").requires(src->src.hasPermission(2))
             .then(Commands.literal("crear")
-                .executes(ctx->constructor.create(ctx.getSource(),32))
+                .executes(ctx->constructor.create(ctx.getSource(),64))
                 .then(Commands.argument("ancho",IntegerArgumentType.integer(32,128))
                     .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
             .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
