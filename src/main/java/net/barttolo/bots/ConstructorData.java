@@ -13,7 +13,8 @@ public final class ConstructorData extends SavedData {
     public boolean configured,active,scanning=true,finished,auditOnly;
     public int chestCursor,chestsFound,chestsConverted,chestsFailed,chestsBoundary;
     public boolean chestsDone,chestsPaused;
-    public final ListTag tasks=new ListTag();
+    public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag();
+    public String villageReport="pendiente";
 
     public static ConstructorData get(MinecraftServer server){
         ServerLevel level=server.overworld();
@@ -32,6 +33,7 @@ public final class ConstructorData extends SavedData {
             // The earlier prototype used the cursor for its moving scan, not this stationary survey.
             d.cursor=0;d.taskCursor=0;d.scanning=true;d.finished=false;
         }
+        d.doors.addAll(tag.getList("doors",10));d.roofs.addAll(tag.getList("roofs",10));d.memory.addAll(tag.getList("memory",10));d.villageReport=tag.getString("villageReport");
         return d;
     }
     public CompoundTag task(int index){return tasks.getCompound(index);}
@@ -43,6 +45,7 @@ public final class ConstructorData extends SavedData {
         tag.putInt("width",width);tag.putInt("cursor",cursor);tag.putInt("taskCursor",taskCursor);tag.putInt("placed",placed);tag.putInt("skipped",skipped);tag.putInt("holesFound",holesFound);tag.putInt("roadsFound",roadsFound);tag.putInt("stoneFound",stoneFound);
         tag.putBoolean("configured",configured);tag.putBoolean("active",active);tag.putBoolean("scanning",scanning);tag.putBoolean("finished",finished);tag.putBoolean("auditOnly",auditOnly);
         tag.putInt("chestCursor",chestCursor);tag.putInt("chestsFound",chestsFound);tag.putInt("chestsConverted",chestsConverted);tag.putInt("chestsFailed",chestsFailed);tag.putInt("chestsBoundary",chestsBoundary);tag.putBoolean("chestsDone",chestsDone);tag.putBoolean("chestsPaused",chestsPaused);
+        tag.put("doors",doors.copy());tag.put("roofs",roofs.copy());tag.put("memory",memory.copy());tag.putString("villageReport",villageReport);
         tag.put("tasks",tasks.copy());return tag;
     }
 }
