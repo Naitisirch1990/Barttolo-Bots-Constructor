@@ -53,6 +53,15 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Relleno 0.4.2 / test15
+
+- Otro 30% de velocidad al caminar: 0,16848 bloques/tick. Farolas con ritmo y separación mínima de 14 bloques, respetando las ya existentes.
+- Pozos mediante análisis de cuencas de toda la superficie: detecta interiores de huecos de varios bloques y profundidades distintas hasta el borde de salida. Límite de 96 columnas y 6 bloques de profundidad por pozo; preserva agua, cultivos y estructuras. Los valles abiertos siguen tratándose como taludes.
+- Cada columna se vuelve a medir al ejecutarla: un relleno parcial previo no invalida el resto del trabajo. Amplía los puntos de trabajo desde el borde a cuatro bloques y permite transitar roca natural.
+- Las reservas protegen la huella de las estructuras en vez de excluir grandes círculos alrededor. Las farolas no se proponen sobre rellenos pendientes y el vallado se ejecuta después de los trabajos de superficie para no cerrar accesos antes de tiempo.
+- Pruebas de cuencas y ejecución Forge de un pozo escalonado de 4×4 con fondo de piedra, hierba y una columna parcialmente rellenada, conservando camino y agua.
+- Mantiene el catálogo y los comandos crear/iniciar. Las farolas antiguas no se recolocan automáticamente.
+
 ## Taludes 0.4.1 / test14
 
 - Detección de cortes de plataforma desde 2 hasta 12 bloques. Sustituye las pocas rampas aisladas por hileras continuas a lo largo del borde: tierra maciza debajo y césped arriba, dos bloques horizontales por nivel de descenso.

@@ -20,6 +20,29 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void multiBlockPitAndPartiallyFilledColumns(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+512,level.getMaxBuildHeight()-24,origin.getZ()+512);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            int ground=c.getY()-(x>=0&&x<4&&z>=0&&z<4?(x==3&&z==3?3:1):0);
+            for(int y=c.getY()-4;y<=c.getY()+5;y++)level.setBlockAndUpdate(new BlockPos(c.getX()+x,y,c.getZ()+z),y<ground?Blocks.DIRT.defaultBlockState():y==ground?(x>=0&&x<4&&z>=0&&z<4?Blocks.STONE.defaultBlockState():Blocks.GRASS_BLOCK.defaultBlockState()):Blocks.AIR.defaultBlockState());
+            if(x>=0&&x<4&&z>=0&&z<4)level.setBlockAndUpdate(new BlockPos(c.getX()+x,ground+1,c.getZ()+z),Blocks.GRASS.defaultBlockState());
+        }
+        BlockPos road=c.offset(-2,0,0);level.setBlockAndUpdate(road,Blocks.DIRT_PATH.defaultBlockState());
+        BlockPos pond=c.offset(8,0,8);level.setBlockAndUpdate(pond,Blocks.WATER.defaultBlockState());
+        h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.below()),"natural stone floors must be traversable");
+        field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        call(b,"planSurfaceRepairs",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.holesFound==1&&d.tasks.size()==16,"audit the entire 4x4 nested pit");
+        BlockPos partial=c.offset(3,-2,3);level.setBlockAndUpdate(partial,Blocks.GRASS_BLOCK.defaultBlockState());
+        h.assertTrue((int)call(b,"priority",new Class[]{int.class},15)>(int)call(b,"priority",new Class[]{int.class},0),"perimeter fence must be built after surface repairs");
+        for(int tick=0;tick<20000&&!d.finished;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.finished&&d.inaccessibleJobs==0&&d.invalidJobs==0&&d.failedPlacements==0,"complete pit repair after a planned column has already changed: invalid="+d.invalidJobs);
+        for(int x=0;x<4;x++)for(int z=0;z<4;z++)h.assertTrue(level.getBlockState(c.offset(x,0,z)).is(Blocks.GRASS_BLOCK),"pit must match its flat rim, including inner columns");
+        h.assertTrue(level.getBlockState(road).is(Blocks.DIRT_PATH)&&level.getBlockState(pond).is(Blocks.WATER),"preserve nearby road and existing water");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void continuousCliffApronWithTallGrass(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));
         BlockPos c=new BlockPos(origin.getX()+256,level.getMaxBuildHeight()-32,origin.getZ()+256);

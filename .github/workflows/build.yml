@@ -22,6 +22,8 @@ jobs:
           java -cp build/ramp-checks TerrainRampProfileChecks
           javac -d build/ramp-checks src/main/java/net/barttolo/bots/TerrainApronPlan.java tests/TerrainApronChecks.java
           java -cp build/ramp-checks TerrainApronChecks
+          javac -d build/ramp-checks src/main/java/net/barttolo/bots/SurfaceBasinPlan.java tests/SurfaceBasinChecks.java
+          java -cp build/ramp-checks SurfaceBasinChecks
       - name: Check village road geometry
         run: |
           mkdir -p build/road-checks

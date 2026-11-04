@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="barttolobots"
-version="0.4.1-constructor-test14"
+version="0.4.2-constructor-test15"
 displayName="Barttolo Bots — RingWorld"
 displayTest="IGNORE_SERVER_VERSION"
 description='''Asistente fijo y Constructor visible para mejorar gradualmente aldeas. Solo servidor.'''
