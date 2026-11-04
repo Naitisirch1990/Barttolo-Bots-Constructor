@@ -4,7 +4,7 @@ Mod de Minecraft Java 1.20.1 / Forge 47.4.10 que conserva el Asistente y añade 
 
 ## Estado
 
-Prototipo de fuentes en desarrollo. El JAR aún no está publicado. GitHub Actions compilará el mod y guardará el JAR como artefacto cuando la compilación pase.
+La primera versión de fuentes está compilada por GitHub Actions. El JAR se encuentra en el artefacto de esta [ejecución](https://github.com/Naitisirch1990/Barttolo-Bots-Constructor/actions/runs/41818993591): descarga el archivo `Barttolo-Bots-Constructor` y extrae el JAR. La compilación terminó correctamente; todavía falta probar el comportamiento dentro de un servidor Minecraft.
 
 ## Comandos de operador
 
@@ -20,6 +20,6 @@ El Constructor cubre tierra expuesta con césped, rellena algunos huecos secos p
 
 ## Compilar
 
-Necesita Java 17. Ejecuta `./gradlew build -x test`; el JAR se genera en `build/libs/`. El workflow de GitHub Actions también compila el proyecto y publica el JAR como artefacto de ejecución.
+Necesita Java 17. Ejecuta `./gradlew build -x test`; el JAR se genera en `build/libs/`. El workflow de GitHub Actions compila el proyecto y publica el JAR como artefacto de cada ejecución correcta.
 
 Más detalles: [LEEME-CONSTRUCTOR.md](LEEME-CONSTRUCTOR.md).
