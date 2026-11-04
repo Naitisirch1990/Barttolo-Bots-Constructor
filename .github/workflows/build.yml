@@ -27,6 +27,9 @@ jobs:
           java -cp build/road-checks RoadLayoutChecks
       - name: Build Forge mod
         run: chmod +x gradlew && ./gradlew build -x test
+      - name: Check constructor in Forge server
+        timeout-minutes: 8
+        run: ./gradlew runGameTestServer
       - uses: actions/upload-artifact@v4
         if: success()
         with:

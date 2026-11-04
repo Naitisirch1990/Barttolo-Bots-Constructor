@@ -53,6 +53,15 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Correcciones 0.3.4 / test12
+
+- Velocidad de desplazamiento 0,108 bloques/tick: otro 20% sobre test11 (0,09). Se mantiene el ritmo de colocación de bloques.
+- Navegación con tierra de cultivo y plantas sin colisión, incluidas zanahorias maduras. La posición actual se comprueba a la altura de los pies, también sobre el pavimento de una obra.
+- El constructor trabaja desde fuera de las huertas, talleres y jardines. Si su celda queda ocupada, intenta un paso local a suelo libre antes de pausar; no destruye cultivos para salir. Una pausa real informa coordenadas y bloque.
+- Los caminos se reparan antes de las tareas de césped. Se excluyen de estas tareas los senderos, su franja próxima y las reservas del plan. Los parches de tierra con dos vecinos de camino también se incorporan al trazado. Rellenos en un corredor reservado terminan en dirt_path.
+- Se añade una prueba en servidor Forge con cultivos maduros, bloqueo sólido, tareas antiguas de césped, puntos de trabajo fuera de las estructuras y la construcción de una huerta completa seguida por otro trabajo.
+- Se conserva el área elegida: 128×128 si se crea con ese tamaño. No hace falta ningún comando adicional.
+
 ## Correcciones 0.3.3 / test11
 
 - Censo completo de puertas antes de reservar caminos y elegir farolas. Reconoce dirt_path y parches conectados de tierra estéril, tierra enraizada y grava.
