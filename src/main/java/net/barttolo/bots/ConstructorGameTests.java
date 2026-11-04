@@ -20,6 +20,36 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void continuousCliffApronWithTallGrass(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));
+        BlockPos c=new BlockPos(origin.getX()+256,level.getMaxBuildHeight()-32,origin.getZ()+256);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            int ground=x<=0?c.getY():c.getY()-3-(x>2&&z%3==0?1:0);
+            for(int y=c.getY()-5;y<=c.getY()+6;y++)level.setBlockAndUpdate(new BlockPos(c.getX()+x,y,c.getZ()+z),y<ground?Blocks.DIRT.defaultBlockState():y==ground?Blocks.GRASS_BLOCK.defaultBlockState():Blocks.AIR.defaultBlockState());
+            if(x>0&&z%2==0)level.setBlockAndUpdate(new BlockPos(c.getX()+x,ground+1,c.getZ()+z),Blocks.GRASS.defaultBlockState());
+        }
+        for(int z:new int[]{-8,8}){CompoundTag door=new CompoundTag();door.putInt("x",c.getX()-8);door.putInt("y",c.getY()+1);door.putInt("z",c.getZ()+z);door.putInt("facing",0);d.doors.add(door);}
+        BlockPos road=c.offset(2,-3,-7);level.setBlockAndUpdate(road.above(),Blocks.AIR.defaultBlockState());level.setBlockAndUpdate(road,Blocks.DIRT_PATH.defaultBlockState());
+        BlockPos tree=c.offset(1,-3,6);for(int y=1;y<=5;y++)level.setBlockAndUpdate(tree.above(y),Blocks.OAK_LOG.defaultBlockState());
+        field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        call(b,"planLandscape",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        long columns=java.util.stream.IntStream.range(0,d.tasks.size()).filter(i->d.task(i).getInt("type")==17).count();
+        h.assertTrue(columns>60,"long three-block cliff must produce continuous rows, not zero or a single ramp");
+        h.assertTrue(d.landscapeReport.contains("bordes detectados"),"report detected edges and protected columns");
+        for(int tick=0;tick<30000&&!d.finished;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.finished&&d.inaccessibleJobs==0&&d.failedPlacements==0,"worker must finish the slope from its reachable top edge: inaccessible="+d.inaccessibleJobs+", failed="+d.failedPlacements);
+        for(int z:new int[]{-10,-3,0,3,10})for(int x=1;x<=4;x++){
+            int y=c.getY()-(x+1)/2;BlockPos p=new BlockPos(c.getX()+x,y,c.getZ()+z);
+            h.assertTrue(level.getBlockState(p).is(Blocks.GRASS_BLOCK),"missing grass apron row at "+x+","+z);
+            for(int fillY=c.getY()-3;fillY<y;fillY++)h.assertTrue(!level.getBlockState(new BlockPos(p.getX(),fillY,p.getZ())).isAir(),"apron must be solid, not a floating grass sheet");
+        }
+        h.assertTrue(level.getBlockState(road).is(Blocks.DIRT_PATH),"slope must preserve the existing road");
+        h.assertTrue(level.getBlockState(tree.above()).is(Blocks.OAK_LOG),"slope must preserve the tree");
+        h.assertTrue(level.getBlockState(c.offset(16,-1,0)).isAir(),"no fill outside the assigned square");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void catalogFitsAndSurvivesPlacement(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX(),level.getMaxBuildHeight()-20,origin.getZ());
         int checked=0;

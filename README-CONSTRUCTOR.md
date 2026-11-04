@@ -53,6 +53,15 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Taludes 0.4.1 / test14
+
+- Detección de cortes de plataforma desde 2 hasta 12 bloques. Sustituye las pocas rampas aisladas por hileras continuas a lo largo del borde: tierra maciza debajo y césped arriba, dos bloques horizontales por nivel de descenso.
+- La hierba y los helechos silvestres dejan de impedir el relleno; conserva árboles, agua, cultivos, caminos, accesos, construcciones y sus reservas. Cada línea se evalúa por separado: un árbol no cancela todo el barranco.
+- Plan sobre la topografía completa de la parcela, fusionando las alturas propuestas y sin excavar laderas. Trabajo gradual desde puntos transitables, incluidos los del borde superior.
+- El informe distingue bordes detectados, columnas/volumen previsto, obstáculos, continuaciones que salen de la parcela y cortes de más de 12 bloques. La zona asignada sigue siendo el límite de trabajo.
+- Pruebas de geometría: desniveles de 2, 3, 4 y 8, terreno irregular, obstáculos y recorte de parcela. Prueba Forge de ejecución: borde largo de tres bloques con hierba, relleno macizo, conservación de árbol/camino y finalización desde la plataforma superior.
+- Mantiene velocidad y catálogo de test13. No aumenta cuotas de decoración: en 64×64 solo propone construcciones que tengan espacio libre y seguro.
+
 ## Catálogo 0.4.0 / test13
 
 - Otro 20% de velocidad de movimiento: 0,1296 bloques/tick. La construcción sigue colocando un bloque por turno.
