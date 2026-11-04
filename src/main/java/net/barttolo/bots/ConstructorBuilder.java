@@ -53,6 +53,7 @@ public final class ConstructorBuilder {
         ConstructorData d=ConstructorData.get(source.getServer());
         d.dimension=source.getLevel().dimension().location().toString();
         d.centerX=(int)Math.floor(source.getPosition().x);d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=(int)Math.floor(source.getPosition().z);
+        d.chestCursor=0;d.chestsFound=0;d.chestsConverted=0;d.chestsFailed=0;d.chestsBoundary=0;d.chestsDone=false;d.chestsPaused=false;
         d.width=width;d.cursor=0;d.taskCursor=0;d.placed=0;d.skipped=0;d.holesFound=0;d.roadsFound=0;d.stoneFound=0;d.configured=true;d.active=false;d.scanning=true;d.finished=false;d.auditOnly=false;d.tasks.clear();
         ServerLevel level=source.getLevel();BlockPos start=findSafeStart(level,d);
         if(start==null){d.configured=false;source.sendFailure(Component.literal("No encontré suelo natural abierto en esta zona para ubicar al Constructor. Probá desde un punto de terreno despejado."));return 0;}
@@ -64,7 +65,7 @@ public final class ConstructorBuilder {
         ConstructorData d=ConstructorData.get(source.getServer());
         if(!d.configured){source.sendFailure(Component.literal("Primero asigná una zona con /constructor crear [32..128]."));return 0;}
         if(d.finished){source.sendFailure(Component.literal("La zona ya está terminada. Asigná otra con /constructor crear."));return 0;}
-        d.active=true;d.auditOnly=false;d.setDirty();announced=false;
+        d.active=true;d.auditOnly=false;d.chestsPaused=false;d.setDirty();announced=false;
         source.sendSuccess(()->Component.literal(d.scanning?"Constructor quieto: empieza a analizar la zona.":"Constructor retoma el trabajo desde el suelo."),false);return 1;
     }
     /** Rebuilds a read-only task audit for the currently assigned square. */
@@ -78,7 +79,7 @@ public final class ConstructorBuilder {
         source.sendSuccess(()->Component.literal("Auditoría iniciada: revisaré la superficie y las columnas vecinas en toda la parcela, sin cambiar bloques."),false);return 1;
     }
     public int pause(CommandSourceStack source){
-        ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.setDirty();
+        ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.chestsPaused=true;d.setDirty();
         source.sendSuccess(()->Component.literal("Constructor pausado. La zona y el progreso quedaron guardados."),false);return 1;
     }
     public int cancel(CommandSourceStack source){
@@ -90,7 +91,7 @@ public final class ConstructorBuilder {
         ConstructorData d=ConstructorData.get(source.getServer());
         String state=!d.configured?"sin zona":d.finished?"terminado":d.auditOnly&&!d.active&&!d.scanning?"auditoría lista":!d.active?"pausado":d.scanning?(d.auditOnly?"auditando superficie":"escaneando quieto"):"trabajando";
         int total=d.width*d.width;
-        String progress=d.configured?(d.scanning?" | columnas "+Math.min(d.cursor,total)+"/"+total:" | tareas "+Math.min(d.taskCursor,d.tasks.size())+"/"+d.tasks.size())+" | huecos "+d.holesFound+" | camino "+d.roadsFound+" columnas | piedra aislada "+d.stoneFound+" | huertas "+taskCount(d,FARM)+" | jardines "+taskCount(d,GARDEN)+" | obras "+taskCount(d,WORKSITE)+" | tareas "+d.tasks.size()+" | bloques "+d.placed+" | omitidos "+d.skipped:"";
+        String progress=d.configured?(d.scanning?" | columnas "+Math.min(d.cursor,total)+"/"+total:" | tareas "+Math.min(d.taskCursor,d.tasks.size())+"/"+d.tasks.size())+" | huecos "+d.holesFound+" | camino "+d.roadsFound+" columnas | piedra aislada "+d.stoneFound+" | huertas "+taskCount(d,FARM)+" | jardines "+taskCount(d,GARDEN)+" | obras "+taskCount(d,WORKSITE)+" | tareas "+d.tasks.size()+" | bloques "+d.placed+" | omitidos "+d.skipped+" | Lootr "+d.chestsConverted+"/"+d.chestsFound+" | cofres fallidos "+d.chestsFailed+" | dobles en límite "+d.chestsBoundary+" | conversión "+(!ConstructorLootr.available()?"Lootr ausente":d.chestsDone?"lista":d.auditOnly||d.chestsPaused?"pausada":"en curso"):"";
         source.sendSuccess(()->Component.literal("Constructor "+state+progress+" | "+(d.configured?d.dimension+" centro "+d.centerX+" "+d.centerY+" "+d.centerZ+" | "+d.width+"×"+d.width:"")),false);return 1;
     }
 
@@ -98,6 +99,7 @@ public final class ConstructorBuilder {
         ConstructorData d=ConstructorData.get(server);if(!d.configured)return;
         if(!planLoaded)loadPlan(d);
         ServerLevel level=level(server,d.dimension);if(level==null)return;
+        ConstructorLootr.tick(level,d);
         if(!visualInitialized){BlockPos start=findSafeStart(level,d);if(start==null)return;visualX=start.getX()+.5;visualY=start.getY()+1;visualZ=start.getZ()+.5;visualInitialized=true;}
         if(d.active){if(d.scanning)scanBatch(level,d);else workTick(server,level,d);}
         sync(server,level,d);
@@ -201,7 +203,8 @@ public final class ConstructorBuilder {
             return;
         }
         if(d.taskCursor>=d.tasks.size()){
-            d.active=false;d.finished=true;d.setDirty();announce(server,level,"Terminé: analicé "+(d.width*d.width)+" columnas e hice "+d.placed+" cambios. Podés asignarme otra zona con /constructor crear.");return;
+            if(!d.chestsDone)return;
+            d.active=false;d.finished=true;d.setDirty();announce(server,level,"Terminé: analicé "+(d.width*d.width)+" columnas e hice "+d.placed+" cambios y convertí "+d.chestsConverted+" cofres a Lootr. Podés asignarme otra zona con /constructor crear.");return;
         }
         if(!beginNearestTask(level,d))return;
         if(!walking)prepareTask(level,d);

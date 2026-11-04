@@ -30,3 +30,9 @@ Las huertas se limitan a una por parcela hasta 64×64 y dos en 128×128. Para re
 ## Compilar
 
 Requiere Java 17. Ejecuta `./gradlew build -x test`; el JAR aparece en `build/libs/`. GitHub Actions compila el proyecto al subir cambios y publica el JAR como artefacto de la ejecución.
+
+## Conversión automática a Lootr (0.2.6)
+
+Al asignar `/constructor crear`, se convierten los cofres vanilla normales y trampa dentro de la parcela, en todas las alturas e interiores. No requiere iniciar el movimiento. Los objetos anteriores se eliminan sin dropear; se conserva una tabla original válida o se elige una tabla vanilla de aldea. Cada mitad de un cofre doble pasa a ser un cofre individual Lootr. Los dobles que cruzan el límite de la parcela se omiten completos, para no alterar el exterior. Se mantienen orientación y agua. No se convierten barriles ni cofres de otros mods; los Lootr existentes no se reinician.
+
+El escaneo procesa un chunk por tick y guarda su progreso. `/constructor estado` muestra convertidos, fallidos y dobles del límite. `/constructor auditar` pausa las conversiones pendientes y sigue siendo de solo lectura; `/constructor iniciar` las reanuda. Cancelar detiene las conversiones pendientes. Sin Lootr instalado no se borran cofres. La compatibilidad se basa en Lootr Forge 1.20 0.7.35.94.
