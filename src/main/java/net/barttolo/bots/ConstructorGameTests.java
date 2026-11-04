@@ -21,7 +21,9 @@ public class ConstructorGameTests {
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
     public static void cropsRoadsAndWorkApproaches(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=h.absolutePos(new BlockPos(4,2,4));ConstructorBuilder b=new ConstructorBuilder();
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));
+        // Forge spawns this template at -60 in a normal world; isolate the outdoor fixture above existing terrain.
+        BlockPos c=new BlockPos(origin.getX(),level.getMaxBuildHeight()-20,origin.getZ());ConstructorBuilder b=new ConstructorBuilder();
         ConstructorData d=new ConstructorData();d.width=128;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
         for(int dx=-5;dx<=5;dx++)for(int dz=-5;dz<=5;dz++){
             BlockPos p=c.offset(dx,0,dz);level.setBlockAndUpdate(p,Blocks.GRASS_BLOCK.defaultBlockState());
@@ -56,8 +58,8 @@ public class ConstructorGameTests {
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.west()),"the farm created by the real queue must remain traversable");
         field(b,"visualX",c.getX()-.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
         d.tasks.clear();d.taskCursor=0;d.tasks.add(task(0,c.offset(4,0,0)));
-        call(b,"beginNearestTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
-        h.assertTrue(d.inaccessibleJobs==0&&d.taskCursor==0,"worker must select another job after standing on its own farm");
+        boolean selected=(boolean)call(b,"beginNearestTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(selected&&d.inaccessibleJobs==0&&d.taskCursor==0,"worker must select another job after standing on its own farm");
         h.succeed();
     }
 }
