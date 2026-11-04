@@ -14,11 +14,13 @@ La parcela se centra donde se ejecuta `crear`.
 
 1. El Constructor permanece quieto mientras analiza la superficie.
 2. Al terminar el análisis, camina a paso lento entre puntos de trabajo. La ruta solo usa suelo natural abierto y caminos de tierra/grava; no sube a tejados ni salta desniveles de más de un bloque.
-3. Cubre tierra expuesta, rellena algunos desniveles secos pequeños, planta árboles jóvenes y flores dispersas, y añade farolas gradualmente.
-4. La farola usa base de ladrillos de piedra, poste y brazos de valla de roble, con dos faroles colgantes. Se distribuyen con una retícula de ocho bloques; cerca de caminos se desplazan a un costado y se alinean con el camino.
+3. Cubre tierra expuesta y rellena depresiones de un bloque con césped. Puede reemplazar piedra aislada que sobresalga en un césped uniforme, sin tocar paredes ni bloques con entidad.
+4. Añade flores y árboles jóvenes, macetas junto a paredes a los lados de puertas, antorchas en esas zonas cuando falta luz y hojas persistentes en esquinas de madera.
+5. En una parcela despejada puede construir una huerta pequeña de 3×3 con agua central y ocho cultivos. La obra se hace bloque a bloque, visible y sin recoger ni soltar objetos.
+6. La farola usa base de ladrillos de piedra, poste y brazos de valla de roble, con dos faroles colgantes. Sigue una retícula de ocho bloques y deja dos bloques de separación del camino para no ocuparlo.
 5. No recoge ni suelta objetos. Guarda el análisis, las tareas y el progreso en los datos del mundo.
 
-Empieza con 32×32 en una copia del mundo. La ruta evita tejados y superficies bajo techo; si no encuentra suelo abierto y conectado hasta una tarea, la omite y la cuenta en `/constructor estado`.
+Las huertas se limitan a una por parcela hasta 64×64 y dos en 128×128. Empieza con 32×32 en una copia del mundo. La ruta evita tejados y superficies bajo techo; si no encuentra suelo abierto y conectado hasta una tarea, la omite y la cuenta en `/constructor estado`.
 
 ## Compilar
 

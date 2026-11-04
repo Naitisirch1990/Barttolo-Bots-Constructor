@@ -16,6 +16,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LanternBlock;
 import net.minecraft.world.level.block.SaplingBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraftforge.common.util.FakePlayer;
@@ -26,11 +29,14 @@ import java.util.*;
 
 /** Visible, deliberate builder: stationary survey first, then grounded travel and work. */
 public final class ConstructorBuilder {
-    private static final int GRASS=0, TERRACE=1, FLOWER=2, SAPLING=3, LAMP=4;
+    private static final int GRASS=0, TERRACE=1, FLOWER=2, SAPLING=3, LAMP=4,
+        PATCH=5, FARM=6, POT=7, TORCH=8, LEAVES=9;
     private static final int SCAN_BATCH=48, LAMP_SPACING=8, WORK_DELAY_TICKS=10;
     private static final double WALK_SPEED=.075;
 
-    private record Placement(BlockPos pos,BlockState state) {}
+    private record Placement(BlockPos pos,BlockState state,boolean force) {
+        Placement(BlockPos pos,BlockState state){this(pos,state,false);}
+    }
     private FakePlayer actor;
     private final Set<UUID> visible=new HashSet<>(),listed=new HashSet<>();
     private final ArrayDeque<Placement> pending=new ArrayDeque<>();
@@ -95,7 +101,12 @@ public final class ConstructorBuilder {
             if(!isOutdoorGround(level,ground))continue;
             if(floor.is(Blocks.DIRT))addTask(d,GRASS,ground,0);
             if(canTerrace(level,ground))addTask(d,TERRACE,ground,0);
+            BlockPos exposed=rawSurface(level,x,z);
+            if(exposed!=null&&isOutdoorGround(level,exposed)&&isIsolatedStone(level,exposed))addTask(d,PATCH,exposed,0);
             if(isRoad(level,ground))planRoadLamp(level,d,ground);
+
+            planHouseDetails(level,d,ground);
+            if(canFarm(level,ground,d))addTask(d,FARM,ground,0);
 
             int rx=Math.floorMod(x-d.centerX,LAMP_SPACING),rz=Math.floorMod(z-d.centerZ,LAMP_SPACING);
             if(rx==0&&rz==0&&!hasRoadNear(level,x,z,3)){
@@ -122,7 +133,7 @@ public final class ConstructorBuilder {
         if(alongZ&&Math.floorMod(road.getZ()-d.centerZ,LAMP_SPACING)!=0)return;
         int arms=alongX&&!alongZ?1:alongZ&&!alongX?0:Math.floorMod(road.getX()+road.getZ(),2);
         int[][] sides=alongX&&!alongZ?new int[][]{{0,1},{0,-1}}:alongZ&&!alongX?new int[][]{{1,0},{-1,0}}:new int[][]{{1,0},{0,1},{-1,0},{0,-1}};
-        for(int[] side:sides){BlockPos base=road.offset(side[0],0,side[1]);if(canBuildLamp(level,d,base,arms)){addTask(d,LAMP,base,arms);return;}}
+        for(int[] side:sides){BlockPos base=road.offset(side[0]*2,0,side[1]*2);BlockPos actual=surface(level,base.getX(),base.getZ());if(actual!=null&&canBuildLamp(level,d,actual,arms)){addTask(d,LAMP,actual,arms);return;}}
     }
     private void planLampAt(ServerLevel level,ConstructorData d,BlockPos ground,int arms){
         if(canBuildLamp(level,d,ground,arms))addTask(d,LAMP,ground,arms);
@@ -154,7 +165,7 @@ public final class ConstructorBuilder {
         if(!pending.isEmpty()){
             if(placementDelay>0){placementDelay--;return;}
             Placement p=pending.removeFirst();
-            if(level.hasChunkAt(p.pos())&&level.getBlockState(p.pos()).canBeReplaced()){
+            if(level.hasChunkAt(p.pos())&&(p.force()||level.getBlockState(p.pos()).canBeReplaced())){
                 level.setBlock(p.pos(),p.state(),3);d.placed++;animate(server,level);
             }else d.skipped++;
             placementDelay=WORK_DELAY_TICKS;d.setDirty();if(pending.isEmpty())completeTask(d,false);return;
@@ -206,9 +217,17 @@ public final class ConstructorBuilder {
         BlockPos ground=new BlockPos(x,y,z);
         if(!level.hasChunkAt(ground)||!isOutdoorGround(level,ground)){completeTask(d,true);return;}
         if(type==GRASS){if(level.getBlockState(ground).is(Blocks.DIRT))pending.add(new Placement(ground,Blocks.GRASS_BLOCK.defaultBlockState()));}
-        else if(type==TERRACE){if(canTerrace(level,ground))pending.add(new Placement(ground.above(),Blocks.DIRT.defaultBlockState()));}
+        else if(type==TERRACE){if(canTerrace(level,ground))pending.add(new Placement(ground.above(),Blocks.GRASS_BLOCK.defaultBlockState()));}
         else if(type==FLOWER){if(clearForPlant(level,ground))pending.add(new Placement(ground.above(),flowerFor(level,x,z).defaultBlockState()));}
         else if(type==SAPLING){if(clearForTree(level,ground))pending.add(new Placement(ground.above(),saplingFor(level,ground).defaultBlockState()));}
+        else if(type==PATCH){if(isIsolatedStone(level,ground))pending.add(new Placement(ground,Blocks.GRASS_BLOCK.defaultBlockState(),true));}
+        else if(type==FARM){if(canFarm(level,ground,d))planFarm(ground);}
+        else if(type==POT){if(canPlacePot(level,ground))pending.add(new Placement(ground.above(),Blocks.POTTED_POPPY.defaultBlockState()));}
+        else if(type==TORCH){if(canPlaceTorch(level,ground))pending.add(new Placement(ground.above(),Blocks.TORCH.defaultBlockState()));}
+        else if(type==LEAVES){if(canPlaceLeaves(level,ground)){
+            pending.add(new Placement(ground.above(),Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT,true)));
+            if(level.getBlockState(ground.above(2)).isAir())pending.add(new Placement(ground.above(2),Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT,true)));
+        }}
         else if(type==LAMP){
             if(!canBuildLamp(level,d,ground,direction)){completeTask(d,true);return;}
             planLampBlocks(ground,direction);
@@ -225,6 +244,19 @@ public final class ConstructorBuilder {
             BlockPos arm=base.offset(dx*sign,4,dz*sign);
             pending.add(new Placement(arm,Blocks.OAK_FENCE.defaultBlockState()));
             pending.add(new Placement(base.offset(dx*sign,3,dz*sign),Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING,true)));
+        }
+    }
+    private void planFarm(BlockPos ground){
+        pending.add(new Placement(ground,Blocks.WATER.defaultBlockState(),true));
+        Block crop=switch(Math.floorMod(ground.getX()*31+ground.getZ()*17,4)){
+            case 0->Blocks.WHEAT;case 1->Blocks.CARROTS;case 2->Blocks.POTATOES;default->Blocks.BEETROOTS;
+        };
+        BlockState cropState=crop.defaultBlockState();
+        for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++){
+            if(dx==0&&dz==0)continue;
+            BlockPos soil=ground.offset(dx,0,dz);
+            pending.add(new Placement(soil,Blocks.FARMLAND.defaultBlockState(),true));
+            pending.add(new Placement(soil.above(),cropState,true));
         }
     }
     private void completeTask(ConstructorData d,boolean skipped){if(skipped)d.skipped++;d.taskCursor++;placementDelay=0;pending.clear();route.clear();routeIndex=0;walking=false;d.setDirty();}
@@ -286,8 +318,87 @@ public final class ConstructorBuilder {
         if(!level.getBlockState(ground.above()).isAir()||!level.getFluidState(ground.above()).isEmpty())return false;
         for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
             BlockPos neighbor=surface(level,ground.getX()+dir[0],ground.getZ()+dir[1]);
-            if(neighbor!=null&&neighbor.getY()-ground.getY()>=2&&neighbor.getY()-ground.getY()<=3&&level.getBlockState(neighbor).is(Blocks.GRASS_BLOCK))return true;
+            if(neighbor!=null&&neighbor.getY()-ground.getY()>=1&&neighbor.getY()-ground.getY()<=3&&level.getBlockState(neighbor).is(Blocks.GRASS_BLOCK))return true;
         }return false;
+    }
+    private BlockPos rawSurface(ServerLevel level,int x,int z){
+        BlockPos probe=new BlockPos(x,level.getMinBuildHeight(),z);if(!level.hasChunkAt(probe))return null;
+        BlockPos top=level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,probe).below();
+        return level.getBlockState(top).isAir()?null:top;
+    }
+    private boolean isIsolatedStone(ServerLevel level,BlockPos p){
+        BlockState state=level.getBlockState(p);
+        if(!(state.is(Blocks.STONE)||state.is(Blocks.COBBLESTONE)||state.is(Blocks.ANDESITE)||state.is(Blocks.DIORITE)||state.is(Blocks.GRANITE)))return false;
+        if(level.getBlockEntity(p)!=null||!level.getBlockState(p.above()).isAir())return false;
+        int lawn=0;
+        for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
+            BlockPos n=rawSurface(level,p.getX()+dir[0],p.getZ()+dir[1]);
+            if(n!=null&&n.getY()==p.getY()&&level.getBlockState(n).is(Blocks.GRASS_BLOCK))lawn++;
+        }
+        return lawn>=3;
+    }
+    private void planHouseDetails(ServerLevel level,ConstructorData d,BlockPos ground){
+        if(!level.getBlockState(ground).is(Blocks.GRASS_BLOCK)||!isOutdoorGround(level,ground))return;
+        // House corner greenery: a lawn tile beside two solid sides, including a log corner.
+        if(canPlaceLeaves(level,ground))addTask(d,LEAVES,ground,0);
+        for(int dx=-3;dx<=3;dx++)for(int dz=-3;dz<=3;dz++){
+            BlockPos scan=ground.offset(dx,0,dz);
+            for(int dy=1;dy<=3;dy++){
+                BlockPos doorPos=scan.above(dy);BlockState door=level.getBlockState(doorPos);
+                if(!(door.getBlock() instanceof DoorBlock)||door.getValue(DoorBlock.HALF)!=DoubleBlockHalf.LOWER)continue;
+                Direction facing=door.getValue(DoorBlock.FACING),side=facing.getClockWise();
+                for(int sign:new int[]{-1,1}){
+                    BlockPos sideGround=new BlockPos(doorPos.getX()+side.getStepX()*sign,ground.getY(),doorPos.getZ()+side.getStepZ()*sign);
+                    BlockPos top=surface(level,sideGround.getX(),sideGround.getZ());if(top==null||top.getY()!=ground.getY())continue;
+                    if(!level.getBlockState(top).is(Blocks.GRASS_BLOCK)||isRoad(level,top)||hasRoadNear(level,top.getX(),top.getZ(),1))continue;
+                    if(canPlacePot(level,top))addTask(d,POT,top,0);
+                    if(level.getMaxLocalRawBrightness(top.above())<8&&canPlaceTorch(level,top))addTask(d,TORCH,top,0);
+                }
+            }
+        }
+    }
+    private boolean canPlacePot(ServerLevel level,BlockPos ground){
+        if(!level.getBlockState(ground).is(Blocks.GRASS_BLOCK)||!isOutdoorGround(level,ground)||!level.getBlockState(ground.above()).canBeReplaced())return false;
+        if(isRoad(level,ground)||hasRoadNear(level,ground.getX(),ground.getZ(),1))return false;
+        // Keep the planter snug to a building wall, but never in the doorway's forward lane.
+        for(Direction dir:Direction.Plane.HORIZONTAL){BlockState neighbor=level.getBlockState(ground.relative(dir).above());
+            if(!neighbor.isAir()&&neighbor.isCollisionShapeFullBlock(level,ground.relative(dir).above()))return true;}
+        return false;
+    }
+    private boolean canPlaceTorch(ServerLevel level,BlockPos ground){
+        return level.getBlockState(ground).is(Blocks.GRASS_BLOCK)&&isOutdoorGround(level,ground)
+            &&level.getBlockState(ground.above()).canBeReplaced()&&!isRoad(level,ground)&&!hasRoadNear(level,ground.getX(),ground.getZ(),1);
+    }
+    private boolean canPlaceLeaves(ServerLevel level,BlockPos ground){
+        if(!level.getBlockState(ground).is(Blocks.GRASS_BLOCK)||!isOutdoorGround(level,ground)
+            ||!level.getBlockState(ground.above()).canBeReplaced()||isRoad(level,ground)||hasRoadNear(level,ground.getX(),ground.getZ(),1))return false;
+        int walls=0;boolean log=false;
+        for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos side=ground.relative(dir).above();BlockState s=level.getBlockState(side);
+            if(s.isCollisionShapeFullBlock(level,side)){walls++;if(s.is(Blocks.OAK_LOG)||s.is(Blocks.SPRUCE_LOG)||s.is(Blocks.BIRCH_LOG)||s.is(Blocks.DARK_OAK_LOG)||s.is(Blocks.ACACIA_LOG))log=true;}}
+        return walls>=2&&log;
+    }
+    private boolean canFarm(ServerLevel level,BlockPos center,ConstructorData d){
+        if(!level.getBlockState(center).is(Blocks.GRASS_BLOCK)||!isOutdoorGround(level,center)||!insideFarmMargin(center,d))return false;
+        for(int dx=-2;dx<=2;dx++)for(int dz=-2;dz<=2;dz++){
+            BlockPos p=center.offset(dx,0,dz),top=surface(level,p.getX(),p.getZ());
+            if(top==null||top.getY()!=center.getY()||!level.getBlockState(top).is(Blocks.GRASS_BLOCK)||!level.getBlockState(top.above()).isAir())return false;
+            if(isRoad(level,top)||hasRoadNear(level,top.getX(),top.getZ(),1))return false;
+            if(dx*dx+dz*dz>=4&&isNearBuilding(level,top))return false;
+        }
+        return true;
+    }
+    private boolean insideFarmMargin(BlockPos p,ConstructorData d){
+        for(int dx=-2;dx<=2;dx++)for(int dz=-2;dz<=2;dz++)if(!inside(d,p.offset(dx,0,dz)))return false;
+        for(int i=0;i<d.tasks.size();i++)if(d.task(i).getInt("type")==FARM){
+            int dx=d.task(i).getInt("x")-p.getX(),dz=d.task(i).getInt("z")-p.getZ();if(dx*dx+dz*dz<100)return false;
+        }
+        int farmCount=0;for(int i=0;i<d.tasks.size();i++)if(d.task(i).getInt("type")==FARM)farmCount++;
+        return farmCount<Math.max(1,d.width/64);
+    }
+    private boolean isNearBuilding(ServerLevel level,BlockPos p){
+        for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos q=p.relative(dir).above();BlockState s=level.getBlockState(q);
+            if(s.isCollisionShapeFullBlock(level,q)&&!s.is(Blocks.GRASS_BLOCK)&&!s.is(Blocks.DIRT))return true;}
+        return false;
     }
     private boolean clearForPlant(ServerLevel level,BlockPos ground){
         if(!isOutdoorGround(level,ground)||!level.getBlockState(ground.above()).isAir())return false;
