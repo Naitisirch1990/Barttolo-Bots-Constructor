@@ -24,7 +24,7 @@ public final class ConstructorData extends SavedData {
         d.centerX=tag.getInt("centerX");d.centerY=tag.getInt("centerY");d.centerZ=tag.getInt("centerZ");
         d.width=tag.contains("width")?tag.getInt("width"):64;d.cursor=tag.getInt("cursor");d.taskCursor=tag.getInt("taskCursor");
         d.placed=tag.getInt("placed");d.skipped=tag.getInt("skipped");d.holesFound=tag.getInt("holesFound");d.roadsFound=tag.getInt("roadsFound");d.stoneFound=tag.getInt("stoneFound");d.configured=tag.getBoolean("configured");
-        d.chestCursor=tag.getInt("chestCursor");d.chestsFound=tag.getInt("chestsFound");d.chestsConverted=tag.getInt("chestsConverted");d.chestsFailed=tag.getInt("chestsFailed");d.chestsBoundary=tag.getInt("chestsBoundary");d.chestsDone=tag.getBoolean("chestsDone");d.chestsPaused=tag.getBoolean("chestsPaused");
+        d.chestCursor=tag.getInt("chestCursor");d.chestsFound=tag.getInt("chestsFound");d.chestsConverted=tag.getInt("chestsConverted");d.chestsFailed=tag.getInt("chestsFailed");d.chestsBoundary=tag.getInt("chestsBoundary");d.chestsDone=!tag.contains("chestsDone")||tag.getBoolean("chestsDone");d.chestsPaused=tag.getBoolean("chestsPaused");
         d.active=tag.getBoolean("active");d.finished=tag.getBoolean("finished");d.auditOnly=tag.getBoolean("auditOnly");
         if(tag.contains("scanning")){
             d.scanning=tag.getBoolean("scanning");d.tasks.addAll(tag.getList("tasks",10));
