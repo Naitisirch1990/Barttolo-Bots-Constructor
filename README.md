@@ -1,25 +1,23 @@
 # Barttolo Bots — Constructor
 
-Mod de Minecraft Java 1.20.1 / Forge 47.4.10 que conserva el Asistente y añade un Constructor visible para mejorar gradualmente una aldea.
+Mod de Minecraft Java 1.20.1 / Forge 47.4.10. Conserva el Asistente y añade un Constructor visible para mejorar gradualmente una aldea.
 
 ## Estado
 
-La primera versión de fuentes está compilada por GitHub Actions. El JAR se encuentra en el artefacto de esta [ejecución](https://github.com/Naitisirch1990/Barttolo-Bots-Constructor/actions/runs/41818993591): descarga el archivo `Barttolo-Bots-Constructor` y extrae el JAR. La compilación terminó correctamente; todavía falta probar el comportamiento dentro de un servidor Minecraft.
+Prototipo experimental. El Constructor primero analiza la zona inmóvil; cuando termina, camina lentamente entre trabajos sobre terreno abierto. La compilación automática sube un JAR como artefacto de cada ejecución correcta. Falta verificar el comportamiento dentro del servidor.
 
 ## Comandos de operador
 
-- `/constructor crear`: asigna 32×32 bloques alrededor de tu posición.
-- `/constructor crear 64`: asigna una parcela 64×64; se acepta de 32 a 128.
+- `/constructor crear`: asigna una parcela de 32×32 centrada en tu posición.
+- `/constructor crear 64`: ancho configurable de 32 a 128 bloques.
 - `/constructor iniciar`, `/constructor pausar`, `/constructor estado`, `/constructor cancelar`.
 
-La parcela se centra donde se ejecuta `crear`. El bot recorre las columnas en zigzag a ritmo lento, conserva el progreso del mundo y no recoge ni suelta objetos.
+## Cambios de esta versión
 
-## Primera prueba
+- El análisis no desplaza al personaje.
+- El trabajo recorre suelo natural abierto y caminos de tierra/grava, con pasos suaves y sin subir a tejados.
+- Planta flores y árboles, cubre tierra expuesta, rellena desniveles secos pequeños e instala farolas.
+- Las farolas tienen base de ladrillos de piedra, poste y brazos de valla de roble con dos faroles colgantes. Se alinean con caminos y siguen una retícula uniforme de ocho bloques donde no hay caminos.
+- El bot modifica bloques como en creativo: no recoge ni suelta objetos. Guarda análisis y progreso en los datos del mundo.
 
-El Constructor cubre tierra expuesta con césped, rellena algunos huecos secos pequeños, planta árboles jóvenes y flores, y añade farolas junto a caminos vanilla. Por ahora no hace navegación física, no construye muros y no remodela acantilados grandes. Empieza con 32×32 en una copia del mundo para revisar el resultado.
-
-## Compilar
-
-Necesita Java 17. Ejecuta `./gradlew build -x test`; el JAR se genera en `build/libs/`. El workflow de GitHub Actions compila el proyecto y publica el JAR como artefacto de cada ejecución correcta.
-
-Más detalles: [LEEME-CONSTRUCTOR.md](LEEME-CONSTRUCTOR.md).
+Empieza en una copia del mundo con 32×32. Para compilar: Java 17 y `./gradlew build -x test`. El JAR se genera en `build/libs/`; GitHub Actions también lo publica como artefacto.

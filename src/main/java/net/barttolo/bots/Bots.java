@@ -59,10 +59,10 @@ public final class Bots {
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent e){
         if(e.phase!=TickEvent.Phase.END)return;
         MinecraftServer s=e.getServer();int now=s.getTickCount();
+        constructor.tick(s);
         if(now%20!=0)return;
         HostData d=HostData.get(s);
         visual.sync(s,d,guide);
-        constructor.tick(s);
         var iterator=welcomeAt.entrySet().iterator();
         while(iterator.hasNext()){
             var job=iterator.next();if(now<job.getValue())continue;

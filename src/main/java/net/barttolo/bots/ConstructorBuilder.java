@@ -4,15 +4,9 @@ import com.mojang.authlib.GameProfile;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ClientboundAddPlayerPacket;
-import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
-import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
-import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
-import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
-import net.minecraft.network.protocol.game.ClientboundRotateHeadPacket;
-import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
-import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
+import net.minecraft.network.protocol.game.*;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -20,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LanternBlock;
 import net.minecraft.world.level.block.SaplingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -29,124 +24,274 @@ import net.minecraft.commands.CommandSourceStack;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/** Slow, visible, server-side village beautification pass. No drops or item inventory. */
+/** Visible, deliberate builder: stationary survey first, then grounded travel and work. */
 public final class ConstructorBuilder {
-    private record Placement(BlockPos pos, BlockState state) {}
+    private static final int GRASS=0, TERRACE=1, FLOWER=2, SAPLING=3, LAMP=4;
+    private static final int SCAN_BATCH=48, LAMP_SPACING=8, WORK_DELAY_TICKS=10;
+    private static final double WALK_SPEED=.075;
 
+    private record Placement(BlockPos pos,BlockState state) {}
     private FakePlayer actor;
     private final Set<UUID> visible=new HashSet<>(),listed=new HashSet<>();
     private final ArrayDeque<Placement> pending=new ArrayDeque<>();
-    private int visualX,visualY,visualZ;
-    private boolean announced,visualInitialized;
+    private final Set<String> planned=new HashSet<>();
+    private final ArrayList<BlockPos> route=new ArrayList<>();
+    private int routeIndex,placementDelay;
+    private double visualX,visualY,visualZ;
+    private boolean announced,visualInitialized,planLoaded,walking,movementPacketPending;
 
     public int create(CommandSourceStack source,int width){
         ConstructorData d=ConstructorData.get(source.getServer());
         d.dimension=source.getLevel().dimension().location().toString();
         d.centerX=(int)Math.floor(source.getPosition().x);d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=(int)Math.floor(source.getPosition().z);
-        d.width=width;d.cursor=0;d.placed=0;d.skipped=0;d.configured=true;d.active=false;d.finished=false;d.setDirty();
-        visualX=d.centerX;visualY=d.centerY;visualZ=d.centerZ;visualInitialized=true;
-        pending.clear();announced=false;resetActor(source.getServer());
-        source.sendSuccess(()->Component.literal("Constructor asignado: "+width+"×"+width+" bloques, centrado en "+d.centerX+" "+d.centerY+" "+d.centerZ+". Usá /constructor iniciar para comenzar la mejora gradual de la aldea."),false);return 1;
+        d.width=width;d.cursor=0;d.taskCursor=0;d.placed=0;d.skipped=0;d.configured=true;d.active=false;d.scanning=true;d.finished=false;d.tasks.clear();
+        ServerLevel level=source.getLevel();BlockPos start=findSafeStart(level,d);
+        if(start==null){d.configured=false;source.sendFailure(Component.literal("No encontré suelo natural abierto en esta zona para ubicar al Constructor. Probá desde un punto de terreno despejado."));return 0;}
+        visualX=start.getX()+.5;visualY=start.getY()+1;visualZ=start.getZ()+.5;visualInitialized=true;
+        pending.clear();route.clear();planned.clear();planLoaded=true;announced=false;walking=false;movementPacketPending=false;resetActor(source.getServer());d.setDirty();
+        source.sendSuccess(()->Component.literal("Zona asignada "+width+"×"+width+". El Constructor escaneará quieto y después trabajará caminando por el suelo."),false);return 1;
     }
     public int start(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
         if(!d.configured){source.sendFailure(Component.literal("Primero asigná una zona con /constructor crear [32..128]."));return 0;}
-        if(d.finished){source.sendFailure(Component.literal("La zona ya fue revisada. Asigná otra con /constructor crear."));return 0;}
+        if(d.finished){source.sendFailure(Component.literal("La zona ya está terminada. Asigná otra con /constructor crear."));return 0;}
         d.active=true;d.setDirty();announced=false;
-        source.sendSuccess(()->Component.literal("Constructor en marcha. Revisará la zona y trabajará bloque por bloque; puede tardar bastante."),false);return 1;
+        source.sendSuccess(()->Component.literal(d.scanning?"Constructor quieto: empieza a analizar la zona.":"Constructor retoma el trabajo desde el suelo."),false);return 1;
     }
     public int pause(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.setDirty();
-        source.sendSuccess(()->Component.literal("Constructor pausado. El progreso de la zona quedó guardado."),false);return 1;
+        source.sendSuccess(()->Component.literal("Constructor pausado. La zona y el progreso quedaron guardados."),false);return 1;
     }
     public int cancel(CommandSourceStack source){
-        ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.configured=false;d.finished=false;d.setDirty();pending.clear();resetActor(source.getServer());
-        source.sendSuccess(()->Component.literal("Asignación cancelada. Los bloques ya colocados se conservan."),false);return 1;
+        ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.configured=false;d.finished=false;d.setDirty();
+        pending.clear();route.clear();planned.clear();planLoaded=false;resetActor(source.getServer());
+        source.sendSuccess(()->Component.literal("Asignación cancelada. Los cambios ya hechos se conservan."),false);return 1;
     }
     public int status(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
-        String state=!d.configured?"sin zona":d.active?"trabajando":d.finished?"terminado":"pausado";
-        int total=d.configured?d.width*d.width:0;
-        String progress=d.configured?" | revisión "+Math.min(d.cursor,total)+"/"+total+" | cambios "+d.placed+" | sin cambios "+d.skipped:"";
-        source.sendSuccess(()->Component.literal("Constructor "+state+progress+" | "+(d.configured?d.dimension+" centro "+d.centerX+" "+d.centerY+" "+d.centerZ+" | zona "+d.width+"×"+d.width:"")),false);return 1;
+        String state=!d.configured?"sin zona":d.finished?"terminado":!d.active?"pausado":d.scanning?"escaneando quieto":"trabajando";
+        int total=d.width*d.width;
+        String progress=d.configured?(d.scanning?" | análisis "+Math.min(d.cursor,total)+"/"+total:" | tareas "+Math.min(d.taskCursor,d.tasks.size())+"/"+d.tasks.size())+" | bloques "+d.placed+" | omitidos "+d.skipped:"";
+        source.sendSuccess(()->Component.literal("Constructor "+state+progress+" | "+(d.configured?d.dimension+" centro "+d.centerX+" "+d.centerY+" "+d.centerZ+" | "+d.width+"×"+d.width:"")),false);return 1;
     }
 
     public void tick(MinecraftServer server){
-        ConstructorData d=ConstructorData.get(server);
-        if(!d.configured)return;
-        if(!visualInitialized){visualX=d.centerX;visualY=d.centerY;visualZ=d.centerZ;visualInitialized=true;}
+        ConstructorData d=ConstructorData.get(server);if(!d.configured)return;
+        if(!planLoaded)loadPlan(d);
         ServerLevel level=level(server,d.dimension);if(level==null)return;
-        if(d.active&&server.getTickCount()%5==0)step(server,level,d);
+        if(!visualInitialized){BlockPos start=findSafeStart(level,d);if(start==null)return;visualX=start.getX()+.5;visualY=start.getY()+1;visualZ=start.getZ()+.5;visualInitialized=true;}
+        if(d.active){if(d.scanning)scanBatch(level,d);else workTick(server,level,d);}
         sync(server,level,d);
     }
-    private void step(MinecraftServer server,ServerLevel level,ConstructorData d){
+
+    /** Survey does not move the visible bot. It only records safe outdoor candidates. */
+    private void scanBatch(ServerLevel level,ConstructorData d){
+        int total=d.width*d.width,stop=Math.min(total,d.cursor+SCAN_BATCH),minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2;
+        while(d.cursor<stop){
+            int row=d.cursor/d.width,col=d.cursor%d.width,x=minX+col,z=minZ+row;d.cursor++;
+            if(!level.hasChunkAt(new BlockPos(x,d.centerY,z)))continue;
+            BlockPos ground=surface(level,x,z);if(ground==null)continue;
+            BlockState floor=level.getBlockState(ground);
+            if(!isOutdoorGround(level,ground))continue;
+            if(floor.is(Blocks.DIRT))addTask(d,GRASS,ground,0);
+            if(canTerrace(level,ground))addTask(d,TERRACE,ground,0);
+            if(isRoad(level,ground))planRoadLamp(level,d,ground);
+
+            int rx=Math.floorMod(x-d.centerX,LAMP_SPACING),rz=Math.floorMod(z-d.centerZ,LAMP_SPACING);
+            if(rx==0&&rz==0&&!hasRoadNear(level,x,z,3)){
+                int arms=Math.floorMod((x-d.centerX+z-d.centerZ)/LAMP_SPACING,2);
+                planLampAt(level,d,ground,arms);
+            }
+            if(!floor.is(Blocks.GRASS_BLOCK)||!level.getFluidState(ground.above()).isEmpty())continue;
+            int seed=Math.floorMod(x*73428767 ^ z*912931,1000);
+            if(seed<7&&clearForTree(level,ground)){
+                addTask(d,SAPLING,ground,0);
+            }else if(seed>=24&&seed<40&&clearForPlant(level,ground)){
+                addTask(d,FLOWER,ground,0);
+            }
+        }
+        d.setDirty();
+        if(d.cursor>=total){d.scanning=false;d.taskCursor=0;d.setDirty();}
+    }
+
+    private void planRoadLamp(ServerLevel level,ConstructorData d,BlockPos road){
+        boolean alongX=isRoad(level,road.west())||isRoad(level,road.east());
+        boolean alongZ=isRoad(level,road.north())||isRoad(level,road.south());
+        if(!alongX&&!alongZ)return;
+        if(alongX&&Math.floorMod(road.getX()-d.centerX,LAMP_SPACING)!=0)return;
+        if(alongZ&&Math.floorMod(road.getZ()-d.centerZ,LAMP_SPACING)!=0)return;
+        int arms=alongX&&!alongZ?1:alongZ&&!alongX?0:Math.floorMod(road.getX()+road.getZ(),2);
+        int[][] sides=alongX&&!alongZ?new int[][]{{0,1},{0,-1}}:alongZ&&!alongX?new int[][]{{1,0},{-1,0}}:new int[][]{{1,0},{0,1},{-1,0},{0,-1}};
+        for(int[] side:sides){BlockPos base=road.offset(side[0],0,side[1]);if(canBuildLamp(level,d,base,arms)){addTask(d,LAMP,base,arms);return;}}
+    }
+    private void planLampAt(ServerLevel level,ConstructorData d,BlockPos ground,int arms){
+        if(canBuildLamp(level,d,ground,arms))addTask(d,LAMP,ground,arms);
+    }
+    private boolean canBuildLamp(ServerLevel level,ConstructorData d,BlockPos base,int arms){
+        if(!level.hasChunkAt(base)||!isOutdoorGround(level,base))return false;
+        if(!(level.getBlockState(base).is(Blocks.GRASS_BLOCK)||level.getBlockState(base).is(Blocks.DIRT)))return false;
+        for(int y=1;y<=4;y++)if(!level.getBlockState(base.above(y)).canBeReplaced())return false;
+        int dx=arms==0?1:0,dz=arms==1?1:0;
+        for(int sign:new int[]{-1,1}){
+            BlockPos arm=base.offset(dx*sign,4,dz*sign),lantern=base.offset(dx*sign,3,dz*sign);
+            if(!inside(d,arm)||!inside(d,lantern)||!level.getBlockState(arm).canBeReplaced()||!level.getBlockState(lantern).canBeReplaced())return false;
+        }
+        return true;
+    }
+    private void addTask(ConstructorData d,int type,BlockPos p,int direction){
+        String key=type+":"+p.getX()+":"+p.getY()+":"+p.getZ();
+        if(!planned.add(key))return;
+        if(type==LAMP){
+            for(int i=0;i<d.tasks.size();i++){
+                CompoundTag prior=d.task(i);if(prior.getInt("type")!=LAMP)continue;
+                int dx=prior.getInt("x")-p.getX(),dz=prior.getInt("z")-p.getZ();if(dx*dx+dz*dz<36){planned.remove(key);return;}
+            }
+        }
+        d.addTask(type,p.getX(),p.getY(),p.getZ(),direction);
+    }
+
+    private void workTick(MinecraftServer server,ServerLevel level,ConstructorData d){
         if(!pending.isEmpty()){
-            Placement action=pending.removeFirst();
-            if(level.hasChunkAt(action.pos())&&level.getBlockState(action.pos()).canBeReplaced()){
-                moveActor(level,action.pos().getX()+.5,action.pos().getY(),action.pos().getZ()+.5);
-                level.setBlock(action.pos(),action.state(),3);d.placed++;d.setDirty();animate(server,level);
+            if(placementDelay>0){placementDelay--;return;}
+            Placement p=pending.removeFirst();
+            if(level.hasChunkAt(p.pos())&&level.getBlockState(p.pos()).canBeReplaced()){
+                level.setBlock(p.pos(),p.state(),3);d.placed++;animate(server,level);
             }else d.skipped++;
+            placementDelay=WORK_DELAY_TICKS;d.setDirty();if(pending.isEmpty())completeTask(d,false);return;
+        }
+        if(walking){
+            walkOneTick(level);
+            if(routeIndex>=route.size()){walking=false;prepareTask(level,d);}
             return;
         }
-        int total=d.width*d.width;
-        if(d.cursor>=total){d.active=false;d.finished=true;d.setDirty();announce(server,level,"Terminé: revisé "+total+" columnas y realicé "+d.placed+" cambios. Podés asignarme otra zona con /constructor crear.");return;}
+        if(d.taskCursor>=d.tasks.size()){
+            d.active=false;d.finished=true;d.setDirty();announce(server,level,"Terminé: analicé "+(d.width*d.width)+" columnas e hice "+d.placed+" cambios. Podés asignarme otra zona con /constructor crear.");return;
+        }
+        if(!beginNearestTask(level,d))return;
+        if(!walking)prepareTask(level,d);
+    }
+    private boolean beginNearestTask(ServerLevel level,ConstructorData d){
+        if(d.taskCursor>=d.tasks.size())return false;
+        int start=d.taskCursor,best=-1;double bestDistance=Double.MAX_VALUE;
+        for(int i=start;i<d.tasks.size();i++){
+            CompoundTag task=d.task(i);BlockPos approach=approachFor(level,d,task);if(approach==null)continue;
+            double dx=approach.getX()+.5-visualX,dz=approach.getZ()+.5-visualZ;
+            double distance=dx*dx+dz*dz;
+            if(distance<bestDistance){best=i;bestDistance=distance;}
+        }
+        if(best<0){d.skipped+=d.tasks.size()-d.taskCursor;d.taskCursor=d.tasks.size();d.setDirty();return false;}
+        if(best!=start){var a=d.tasks.get(start);var b=d.tasks.get(best);d.tasks.set(start,b);d.tasks.set(best,a);}
+        CompoundTag task=d.task(d.taskCursor);BlockPos goal=approachFor(level,d,task);
+        if(goal==null){d.skipped++;d.taskCursor++;d.setDirty();return false;}
+        BlockPos current=surface(level,(int)Math.floor(visualX),(int)Math.floor(visualZ));
+        if(current==null){current=findSafeStart(level,d);if(current==null){d.skipped++;d.taskCursor++;return false;}}
+        List<BlockPos> found=findPath(level,d,current,goal);
+        if(found==null){d.skipped++;d.taskCursor++;d.setDirty();return false;}
+        route.clear();route.addAll(found);routeIndex=0;
+        walking=!route.isEmpty();
+        if(!walking)prepareTask(level,d);
+        return true;
+    }
+    private void walkOneTick(ServerLevel level){
+        if(routeIndex>=route.size())return;
+        BlockPos next=route.get(routeIndex);double tx=next.getX()+.5,ty=next.getY()+1,tz=next.getZ()+.5;
+        double dx=tx-visualX,dy=ty-visualY,dz=tz-visualZ,dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(dist<=WALK_SPEED){visualX=tx;visualY=ty;visualZ=tz;routeIndex++;if(actor!=null)face(actor,dx,dz);}
+        else{double scale=WALK_SPEED/dist;visualX+=dx*scale;visualY+=dy*scale;visualZ+=dz*scale;if(actor!=null)face(actor,dx,dz);}
+        movementPacketPending=true;if(actor!=null)actor.setPos(visualX,visualY,visualZ);
+    }
+    private void prepareTask(ServerLevel level,ConstructorData d){
+        if(d.taskCursor>=d.tasks.size())return;
+        CompoundTag task=d.task(d.taskCursor);int type=task.getInt("type"),x=task.getInt("x"),y=task.getInt("y"),z=task.getInt("z"),direction=task.getInt("direction");
+        BlockPos ground=new BlockPos(x,y,z);
+        if(!level.hasChunkAt(ground)||!isOutdoorGround(level,ground)){completeTask(d,true);return;}
+        if(type==GRASS){if(level.getBlockState(ground).is(Blocks.DIRT))pending.add(new Placement(ground,Blocks.GRASS_BLOCK.defaultBlockState()));}
+        else if(type==TERRACE){if(canTerrace(level,ground))pending.add(new Placement(ground.above(),Blocks.DIRT.defaultBlockState()));}
+        else if(type==FLOWER){if(clearForPlant(level,ground))pending.add(new Placement(ground.above(),flowerFor(level,x,z).defaultBlockState()));}
+        else if(type==SAPLING){if(clearForTree(level,ground))pending.add(new Placement(ground.above(),saplingFor(level,ground).defaultBlockState()));}
+        else if(type==LAMP){
+            if(!canBuildLamp(level,d,ground,direction)){completeTask(d,true);return;}
+            planLampBlocks(ground,direction);
+        }
+        if(pending.isEmpty())completeTask(d,true);
+    }
+    private void planLampBlocks(BlockPos base,int arms){
+        pending.add(new Placement(base.above(),Blocks.STONE_BRICKS.defaultBlockState()));
+        pending.add(new Placement(base.above(2),Blocks.OAK_FENCE.defaultBlockState()));
+        pending.add(new Placement(base.above(3),Blocks.OAK_FENCE.defaultBlockState()));
+        pending.add(new Placement(base.above(4),Blocks.OAK_FENCE.defaultBlockState()));
+        int dx=arms==0?1:0,dz=arms==1?1:0;
+        for(int sign:new int[]{-1,1}){
+            BlockPos arm=base.offset(dx*sign,4,dz*sign);
+            pending.add(new Placement(arm,Blocks.OAK_FENCE.defaultBlockState()));
+            pending.add(new Placement(base.offset(dx*sign,3,dz*sign),Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING,true)));
+        }
+    }
+    private void completeTask(ConstructorData d,boolean skipped){if(skipped)d.skipped++;d.taskCursor++;placementDelay=0;pending.clear();route.clear();routeIndex=0;walking=false;d.setDirty();}
 
-        int row=d.cursor/d.width,col=d.cursor%d.width;
-        if((row&1)==1)col=d.width-1-col; // serpentine route so the avatar visibly traverses the plot
-        int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2;
-        int x=minX+col,z=minZ+row;
-        d.cursor++;
-        BlockPos ground=level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,new BlockPos(x,0,z)).below();
-        moveActor(level,x+.5,ground.getY()+1,z+.5);
-        if(!level.hasChunkAt(ground)||!level.canSeeSky(ground.above())){d.skipped++;return;}
-        BlockState floor=level.getBlockState(ground);
-        if(planSmallTerrace(level,ground))return;
-        if(floor.is(Blocks.DIRT)){
-            pending.add(new Placement(ground,Blocks.GRASS_BLOCK.defaultBlockState()));return;
-        }
-        // A small, deterministic lantern network anchored to existing village paths.
-        if(floor.is(Blocks.DIRT_PATH)&&Math.floorMod(x*31+z*17,13)==0){
-            planLamp(level,ground);if(!pending.isEmpty())return;
-        }
-        if(!floor.is(Blocks.GRASS_BLOCK)||!level.getFluidState(ground.above()).isEmpty())return;
-        // Sparse trees and flowers use only vanilla blocks and never replace existing blocks.
-        int seed=Math.floorMod(x*73428767 ^ z*912931,1000);
-        if(seed<9&&clearForTree(level,ground)){
-            Block sapling=saplingFor(level,ground);
-            pending.add(new Placement(ground.above(),sapling.defaultBlockState()));return;
-        }
-        if(seed>=20&&seed<46&&clearForPlant(level,ground)){
-            Block flower=flowerFor(level,x,z);
-            pending.add(new Placement(ground.above(),flower.defaultBlockState()));
-        }
-    }
-    private void planLamp(ServerLevel level,BlockPos path){
-        for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
-            BlockPos base=path.offset(dir[0],0,dir[1]);
-            BlockState soil=level.getBlockState(base);
-            if(!(soil.is(Blocks.GRASS_BLOCK)||soil.is(Blocks.DIRT))||!level.canSeeSky(base.above()))continue;
-            if(!level.getBlockState(base.above()).canBeReplaced()||!level.getBlockState(base.above(2)).canBeReplaced()||!level.getBlockState(base.above(3)).canBeReplaced())continue;
-            pending.add(new Placement(base.above(),Blocks.OAK_FENCE.defaultBlockState()));
-            pending.add(new Placement(base.above(2),Blocks.OAK_FENCE.defaultBlockState()));
-            pending.add(new Placement(base.above(3),Blocks.LANTERN.defaultBlockState()));return;
-        }
-    }
-    /** Fills only exposed, dry, one-block air gaps beside a surface two blocks higher. */
-    private boolean planSmallTerrace(ServerLevel level,BlockPos ground){
-        if(!(level.getBlockState(ground).is(Blocks.GRASS_BLOCK)||level.getBlockState(ground).is(Blocks.DIRT)))return false;
-        BlockPos target=ground.above();if(!level.getBlockState(target).isAir()||!level.getFluidState(target).isEmpty())return false;
-        for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
-            int nx=ground.getX()+dir[0],nz=ground.getZ()+dir[1];
-            BlockPos neighbor=level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,new BlockPos(nx,0,nz)).below();
-            int difference=neighbor.getY()-ground.getY();
-            if(difference>=2&&difference<=3&&level.getBlockState(neighbor).is(Blocks.GRASS_BLOCK)&&level.canSeeSky(target)){
-                pending.add(new Placement(target,Blocks.DIRT.defaultBlockState()));return true;
+    private List<BlockPos> findPath(ServerLevel level,ConstructorData d,BlockPos start,BlockPos goal){
+        int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2,maxX=minX+d.width-1,maxZ=minZ+d.width-1;
+        long startKey=key(start),goalKey=key(goal);if(startKey==goalKey)return List.of();
+        ArrayDeque<BlockPos> open=new ArrayDeque<>();Map<Long,Long> parent=new HashMap<>();Map<Long,BlockPos> nodes=new HashMap<>();
+        open.add(start);parent.put(startKey,startKey);nodes.put(startKey,start);
+        int[][] dirs={{1,0},{-1,0},{0,1},{0,-1}};
+        while(!open.isEmpty()){
+            BlockPos at=open.removeFirst();long atKey=key(at);
+            for(int[] dir:dirs){
+                int x=at.getX()+dir[0],z=at.getZ()+dir[1];if(x<minX||x>maxX||z<minZ||z>maxZ)continue;
+                long k=key(x,z);if(parent.containsKey(k))continue;
+                BlockPos next=surface(level,x,z);if(next==null||Math.abs(next.getY()-at.getY())>1)continue;
+                parent.put(k,atKey);nodes.put(k,next);
+                if(k==goalKey){ArrayList<BlockPos> result=new ArrayList<>();long cursor=k;while(cursor!=startKey){result.add(nodes.get(cursor));cursor=parent.get(cursor);}Collections.reverse(result);return result;}
+                open.addLast(next);
             }
+        }return null;
+    }
+    private BlockPos approachFor(ServerLevel level,ConstructorData d,CompoundTag task){
+        BlockPos target=new BlockPos(task.getInt("x"),task.getInt("y"),task.getInt("z"));
+        int type=task.getInt("type"),direction=task.getInt("direction");
+        int[][] dirs=type==LAMP?(direction==0?new int[][]{{0,2},{0,-2},{0,3},{0,-3}}:new int[][]{{2,0},{-2,0},{3,0},{-3,0}}):new int[][]{{1,0},{-1,0},{0,1},{0,-1}};
+        BlockPos best=null;double bestDistance=Double.MAX_VALUE;
+        for(int[] dir:dirs){BlockPos p=surface(level,target.getX()+dir[0],target.getZ()+dir[1]);if(p==null)continue;
+            double dx=p.getX()+.5-visualX,dz=p.getZ()+.5-visualZ,dist=dx*dx+dz*dz;
+            if(dist<bestDistance){best=p;bestDistance=dist;}}
+        return best;
+    }
+
+    private BlockPos surface(ServerLevel level,int x,int z){
+        BlockPos probe=new BlockPos(x,level.getMinBuildHeight(),z);if(!level.hasChunkAt(probe))return null;
+        BlockPos ground=level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,probe).below();
+        return isWalkableGround(level,ground)?ground:null;
+    }
+    private BlockPos findSafeStart(ServerLevel level,ConstructorData d){
+        for(int radius=0;radius<=8;radius++)for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++){
+            if(Math.abs(dx)+Math.abs(dz)!=radius)continue;
+            int x=d.centerX+dx,z=d.centerZ+dz;
+            if(x<d.centerX-d.width/2||x>=d.centerX+(d.width+1)/2||z<d.centerZ-d.width/2||z>=d.centerZ+(d.width+1)/2)continue;
+            BlockPos p=surface(level,x,z);if(p!=null)return p;
+        }return null;
+    }
+    private boolean isWalkableGround(ServerLevel level,BlockPos ground){
+        if(!isOutdoorGround(level,ground)||!level.getFluidState(ground.above()).isEmpty())return false;
+        BlockState floor=level.getBlockState(ground);
+        return floor.is(Blocks.GRASS_BLOCK)||floor.is(Blocks.DIRT)||floor.is(Blocks.COARSE_DIRT)||floor.is(Blocks.PODZOL)
+            ||floor.is(Blocks.ROOTED_DIRT)||floor.is(Blocks.MYCELIUM)||floor.is(Blocks.DIRT_PATH)||floor.is(Blocks.GRAVEL)
+            ||floor.is(Blocks.MOSS_BLOCK)||floor.is(Blocks.SAND)||floor.is(Blocks.RED_SAND);
+    }
+    private boolean isOutdoorGround(ServerLevel level,BlockPos ground){
+        return level.canSeeSky(ground.above())&&level.getBlockState(ground.above()).isAir()&&level.getBlockState(ground.above(2)).isAir();
+    }
+    private boolean canTerrace(ServerLevel level,BlockPos ground){
+        BlockState floor=level.getBlockState(ground);if(!(floor.is(Blocks.GRASS_BLOCK)||floor.is(Blocks.DIRT)))return false;
+        if(!level.getBlockState(ground.above()).isAir()||!level.getFluidState(ground.above()).isEmpty())return false;
+        for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
+            BlockPos neighbor=surface(level,ground.getX()+dir[0],ground.getZ()+dir[1]);
+            if(neighbor!=null&&neighbor.getY()-ground.getY()>=2&&neighbor.getY()-ground.getY()<=3&&level.getBlockState(neighbor).is(Blocks.GRASS_BLOCK))return true;
         }return false;
     }
     private boolean clearForPlant(ServerLevel level,BlockPos ground){
-        BlockPos p=ground.above();if(!level.getBlockState(p).canBeReplaced())return false;
-        for(int dx=-2;dx<=2;dx++)for(int dz=-2;dz<=2;dz++)if(level.getBlockState(p.offset(dx,0,dz)).is(Blocks.DIRT_PATH))return false;
+        if(!isOutdoorGround(level,ground)||!level.getBlockState(ground.above()).isAir())return false;
+        for(int dx=-2;dx<=2;dx++)for(int dz=-2;dz<=2;dz++)if(isRoad(level,ground.offset(dx,0,dz)))return false;
         return true;
     }
     private boolean clearForTree(ServerLevel level,BlockPos ground){
@@ -154,6 +299,24 @@ public final class ConstructorBuilder {
         for(BlockPos p:BlockPos.betweenClosed(ground.offset(-4,0,-4),ground.offset(4,5,4))){
             Block b=level.getBlockState(p).getBlock();if(b instanceof SaplingBlock||b==Blocks.OAK_LOG||b==Blocks.SPRUCE_LOG||b==Blocks.BIRCH_LOG||b==Blocks.OAK_LEAVES||b==Blocks.SPRUCE_LEAVES||b==Blocks.BIRCH_LEAVES)return false;
         }return true;
+    }
+    private boolean isRoad(ServerLevel level,BlockPos p){
+        BlockPos top=surface(level,p.getX(),p.getZ());if(top==null)return false;
+        BlockState s=level.getBlockState(top);if(s.is(Blocks.DIRT_PATH))return true;
+        if(!s.is(Blocks.GRAVEL))return false;int neighbors=0;
+        for(int[] dir:new int[][]{{1,0},{-1,0},{0,1},{0,-1}}){
+            BlockPos n=surface(level,p.getX()+dir[0],p.getZ()+dir[1]);
+            if(n!=null&&(level.getBlockState(n).is(Blocks.DIRT_PATH)||level.getBlockState(n).is(Blocks.GRAVEL)))neighbors++;
+        }
+        return neighbors>=2;
+    }
+    private boolean hasRoadNear(ServerLevel level,int x,int z,int radius){
+        for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++)if(isRoad(level,new BlockPos(x+dx,level.getMinBuildHeight(),z+dz)))return true;
+        return false;
+    }
+    private boolean inside(ConstructorData d,BlockPos p){
+        int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2;
+        return p.getX()>=minX&&p.getX()<minX+d.width&&p.getZ()>=minZ&&p.getZ()<minZ+d.width;
     }
     private Block saplingFor(ServerLevel level,BlockPos ground){
         String biome=level.getBiome(ground).unwrapKey().map(k->k.location().getPath()).orElse("");
@@ -170,45 +333,46 @@ public final class ConstructorBuilder {
         if(actor!=null)return;
         GameProfile profile=new GameProfile(UUID.nameUUIDFromBytes("barttolobots:constructor:v1".getBytes(StandardCharsets.UTF_8)),"Constructor");
         actor=new FakePlayer(level,profile){ {getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION,(byte)127);} };
-        actor.setNoGravity(true);actor.setInvulnerable(true);actor.setPos(visualX+.5,visualY,visualZ+.5);
-    }
-    private void moveActor(ServerLevel level,double x,double y,double z){
-        ensureActor(level);visualX=(int)Math.floor(x);visualY=(int)Math.floor(y);visualZ=(int)Math.floor(z);
-        double dx=x-actor.getX(),dz=z-actor.getZ();
-        if(Math.abs(dx)+Math.abs(dz)>.01){float yaw=(float)(Math.toDegrees(Math.atan2(-dx,dz)));actor.setYRot(yaw);actor.setYHeadRot(yaw);}
-        actor.setPos(x,y,z);
+        actor.setNoGravity(true);actor.setInvulnerable(true);actor.setPos(visualX,visualY,visualZ);
     }
     private void sync(MinecraftServer server,ServerLevel level,ConstructorData d){
-        ensureActor(level);actor.setPos(visualX+.5,visualY,visualZ+.5);
+        ensureActor(level);actor.setPos(visualX,visualY,visualZ);
         for(ServerPlayer p:server.getPlayerList().getPlayers()){
-            boolean close=p.level()==level&&p.distanceToSqr(actor)<=128*128&&p.serverLevel().hasChunkAt(actor.blockPosition());
-            UUID id=p.getUUID();
+            boolean close=p.level()==level&&p.distanceToSqr(actor)<=128*128&&p.serverLevel().hasChunkAt(actor.blockPosition());UUID id=p.getUUID();
             if(close&&listed.add(id))p.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(actor)));
             if(close&&visible.add(id)){
                 p.connection.send(new ClientboundAddPlayerPacket(actor));var data=actor.getEntityData().getNonDefaultValues();
                 if(data!=null)p.connection.send(new ClientboundSetEntityDataPacket(actor.getId(),data));
-            }else if(close&&server.getTickCount()%5==0)p.connection.send(new ClientboundTeleportEntityPacket(actor));
+                p.connection.send(new ClientboundRotateHeadPacket(actor,(byte)(actor.getYRot()*256/360)));
+            }else if(close&&(movementPacketPending||server.getTickCount()%5==0))p.connection.send(new ClientboundTeleportEntityPacket(actor));
             else if(!close&&visible.remove(id))p.connection.send(new ClientboundRemoveEntitiesPacket(actor.getId()));
             if(!close&&listed.remove(id))p.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(actor.getUUID())));
         }
+        movementPacketPending=false;
+    }
+    private void face(FakePlayer player,double dx,double dz){
+        if(Math.abs(dx)+Math.abs(dz)<.0001)return;float yaw=(float)Math.toDegrees(Math.atan2(-dx,dz));player.setYRot(yaw);player.setYHeadRot(yaw);
     }
     private void animate(MinecraftServer server,ServerLevel level){
-        if(actor==null)return;
-        for(ServerPlayer p:server.getPlayerList().getPlayers())if(p.level()==level&&visible.contains(p.getUUID()))p.connection.send(new ClientboundAnimatePacket(actor,(byte)0));
+        if(actor==null)return;for(ServerPlayer p:server.getPlayerList().getPlayers())if(p.level()==level&&visible.contains(p.getUUID()))p.connection.send(new ClientboundAnimatePacket(actor,0));
     }
     private void announce(MinecraftServer server,ServerLevel level,String message){
         if(announced)return;announced=true;
         for(ServerPlayer p:server.getPlayerList().getPlayers())if(p.level()==level)p.sendSystemMessage(Component.literal("Constructor: ").withStyle(ChatFormatting.GOLD).append(Component.literal(message).withStyle(ChatFormatting.YELLOW)));
     }
     private ServerLevel level(MinecraftServer server,String key){
-        ResourceLocation loc=ResourceLocation.tryParse(key);if(loc==null)return null;
-        return server.getLevel(ResourceKey.create(Registries.DIMENSION,loc));
+        ResourceLocation loc=ResourceLocation.tryParse(key);return loc==null?null:server.getLevel(ResourceKey.create(Registries.DIMENSION,loc));
+    }
+    private void loadPlan(ConstructorData d){
+        planned.clear();for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);planned.add(t.getInt("type")+":"+t.getInt("x")+":"+t.getInt("y")+":"+t.getInt("z"));}planLoaded=true;
     }
     private void resetActor(MinecraftServer server){
         if(actor!=null)for(ServerPlayer p:server.getPlayerList().getPlayers()){
             if(visible.contains(p.getUUID()))p.connection.send(new ClientboundRemoveEntitiesPacket(actor.getId()));
             if(listed.contains(p.getUUID()))p.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(actor.getUUID())));
         }
-        actor=null;visible.clear();listed.clear();pending.clear();
+        actor=null;visible.clear();listed.clear();
     }
+    private long key(BlockPos p){return key(p.getX(),p.getZ());}
+    private long key(int x,int z){return ((long)x<<32)|(z&0xffffffffL);}
 }
