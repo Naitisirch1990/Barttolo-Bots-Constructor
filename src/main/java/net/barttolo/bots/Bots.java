@@ -147,6 +147,7 @@ public final class Bots {
                     .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
             .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
             .then(Commands.literal("pausar").executes(ctx->constructor.pause(ctx.getSource())))
+            .then(Commands.literal("auditar").executes(ctx->constructor.audit(ctx.getSource())))
             .then(Commands.literal("estado").executes(ctx->constructor.status(ctx.getSource())))
             .then(Commands.literal("cancelar").executes(ctx->constructor.cancel(ctx.getSource()))));
     }
