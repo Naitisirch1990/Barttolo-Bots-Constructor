@@ -20,6 +20,29 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void pavedVillageFloorIsConnectedAtCurrentHeight(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1024,level.getMaxBuildHeight()-24,origin.getZ()+1024);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;d.active=true;d.scanning=false;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            level.setBlockAndUpdate(c.offset(x,-1,z),Blocks.DIRT.defaultBlockState());
+            level.setBlockAndUpdate(c.offset(x,0,z),(x>=0&&x<=2?Blocks.STONE_BRICKS:Blocks.GRASS_BLOCK).defaultBlockState());
+            for(int y=1;y<=6;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        // All routes cross a three-block band of manufactured paving that the old natural-soil filter rejected.
+        BlockPos target=c.east(6);level.setBlockAndUpdate(target,Blocks.DIRT.defaultBlockState());
+        field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        d.tasks.add(task(16,target));
+        for(int tick=0;tick<10000&&!d.finished&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.finished&&d.inaccessibleJobs==0&&level.getBlockState(target).is(Blocks.DIRT_PATH),"road repair must cross village paving instead of pausing without access");
+        h.assertTrue(level.getBlockState(c).is(Blocks.STONE_BRICKS),"walking must preserve the paving");
+        BlockPos slab=c.offset(-4,0,8);level.setBlockAndUpdate(slab,Blocks.STONE_BRICK_SLAB.defaultBlockState());
+        h.assertTrue(slab.equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,slab.getX(),slab.getZ(),c.getY())),"recognize a ground-level slab");
+        h.assertTrue(Math.abs((double)call(b,"footHeight",new Class[]{ServerLevel.class,BlockPos.class},level,slab)-(slab.getY()+.5))<.001,"feet must follow the slab surface");
+        BlockPos underRoof=c.offset(-8,0,8);level.setBlockAndUpdate(underRoof.above(3),Blocks.OAK_PLANKS.defaultBlockState());
+        h.assertTrue(underRoof.equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,underRoof.getX(),underRoof.getZ(),c.getY())),"walk below an eave instead of selecting the highest roof block");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void unfinishedWorkPersistsAndResumes(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+768,level.getMaxBuildHeight()-28,origin.getZ()+768);
         ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.configured=true;d.chestsDone=true;d.scanning=false;d.active=true;

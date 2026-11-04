@@ -323,7 +323,7 @@ public final class ConstructorBuilder {
         while(!open.isEmpty()){
             BlockPos at=open.removeFirst();for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos q=at.relative(dir);long k=key(q);
                 if(!inside(d,q)||parents.containsKey(k))continue;
-                BlockPos next=surface(level,q.getX(),q.getZ());if(next==null||Math.abs(next.getY()-at.getY())>1)continue;
+                BlockPos next=navigationStep(level,d,q.getX(),q.getZ(),at.getY());if(next==null)continue;
                 parents.put(k,key(at));nodes.put(k,next);open.addLast(next);
             }
         }
@@ -335,13 +335,13 @@ public final class ConstructorBuilder {
             if(pri<bestPriority||(pri==bestPriority&&dist<bestDistance)){best=i;bestPriority=pri;bestDistance=dist;goal=approach;}
         }
         reachable=Map.of();
-        if(best<0){for(int i=d.taskCursor;i<d.tasks.size();i++){d.inaccessibleJobs++;deferJob(d,d.task(i),"sin acceso conectado tras revisar los lados del trabajo");}d.skipped+=d.tasks.size()-d.taskCursor;d.taskCursor=d.tasks.size();d.setDirty();return false;}
+        if(best<0){for(int i=d.taskCursor;i<d.tasks.size();i++){d.inaccessibleJobs++;deferJob(d,d.task(i),accessReason(level,d.task(i),nodes.size()));}d.skipped+=d.tasks.size()-d.taskCursor;d.taskCursor=d.tasks.size();d.setDirty();return false;}
         int start=d.taskCursor;if(best!=start){var a=d.tasks.get(start);d.tasks.set(start,d.tasks.get(best));d.tasks.set(best,a);}
         recoveringRoute=false;route.clear();for(long k=key(goal);k!=key(current);k=parents.get(k))route.add(nodes.get(k));Collections.reverse(route);routeIndex=0;walking=!route.isEmpty();return true;
     }
     private void walkOneTick(ServerLevel level){
         if(routeIndex>=route.size())return;
-        BlockPos next=route.get(routeIndex);double tx=next.getX()+.5,ty=next.getY()+1,tz=next.getZ()+.5;
+        BlockPos next=route.get(routeIndex);double tx=next.getX()+.5,ty=footHeight(level,next),tz=next.getZ()+.5;
         double dx=tx-visualX,dy=ty-visualY,dz=tz-visualZ,dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
         if(dist<=WALK_SPEED){visualX=tx;visualY=ty;visualZ=tz;routeIndex++;if(actor!=null)face(actor,dx,dz);}
         else{double scale=WALK_SPEED/dist;visualX+=dx*scale;visualY+=dy*scale;visualZ+=dz*scale;if(actor!=null)face(actor,dx,dz);}
@@ -597,7 +597,7 @@ public final class ConstructorBuilder {
             for(int[] dir:dirs){
                 int x=at.getX()+dir[0],z=at.getZ()+dir[1];if(x<minX||x>maxX||z<minZ||z>maxZ)continue;
                 long k=key(x,z);if(parent.containsKey(k))continue;
-                BlockPos next=surface(level,x,z);if(next==null||Math.abs(next.getY()-at.getY())>1)continue;
+                BlockPos next=navigationStep(level,d,x,z,at.getY());if(next==null)continue;
                 parent.put(k,atKey);nodes.put(k,next);
                 if(k==goalKey){ArrayList<BlockPos> result=new ArrayList<>();long cursor=k;while(cursor!=startKey){result.add(nodes.get(cursor));cursor=parent.get(cursor);}Collections.reverse(result);return result;}
                 open.addLast(next);
@@ -607,13 +607,14 @@ public final class ConstructorBuilder {
     private BlockPos approachFor(ServerLevel level,ConstructorData d,CompoundTag task){
         BlockPos target=new BlockPos(task.getInt("x"),task.getInt("y"),task.getInt("z"));
         int type=task.getInt("type"),direction=task.getInt("direction");
-        if(type==RAMP||type==RETAIN||type==FILL){
+        if(type==RAMP||type==RETAIN||type==FILL||type==PATH){
             BlockPos best=null;double score=Double.MAX_VALUE;
             for(int dx=-4;dx<=4;dx++)for(int dz=-4;dz<=4;dz++){
-                if(dx==0&&dz==0||dx*dx+dz*dz>20)continue;
+                if((dx==0&&dz==0&&type!=PATH)||dx*dx+dz*dz>20)continue;
                 BlockPos p=reachable.isEmpty()?surface(level,target.getX()+dx,target.getZ()+dz):reachable.get(key(target.getX()+dx,target.getZ()+dz));
                 if(p==null||!inside(d,p)||(!reachable.isEmpty()&&!reachable.containsKey(key(p))))continue;
-                if(Math.abs(p.getY()-direction)>12)continue;
+                if(type==PATH?Math.abs(p.getY()-target.getY())>2:Math.abs(p.getY()-direction)>12)continue;
+                if(type==PATH&&!roadWorkVisible(level,p,target))continue;
                 double distance=(p.getX()+.5-visualX)*(p.getX()+.5-visualX)+(p.getZ()+.5-visualZ)*(p.getZ()+.5-visualZ)+.02*(dx*dx+dz*dz);
                 if(distance<score){best=p;score=distance;}
             }return best;
@@ -653,7 +654,7 @@ public final class ConstructorBuilder {
             if(floor.is(Blocks.FARMLAND)||isWalkableGround(level,p))return p;
             if(!level.getFluidState(p).isEmpty()||floor.is(Blocks.MAGMA_BLOCK)||floor.is(Blocks.CACTUS)||floor.is(Blocks.CAMPFIRE)||floor.is(Blocks.SOUL_CAMPFIRE))continue;
             var shape=floor.getCollisionShape(level,p);
-            if(!shape.isEmpty()&&shape.max(Direction.Axis.Y)>=.5)return p;
+            if(!shape.isEmpty()&&shape.max(Direction.Axis.Y)>=.5&&shape.max(Direction.Axis.Y)<=1&&level.getBlockEntity(p)==null&&!(floor.getBlock() instanceof net.minecraft.world.level.block.LeavesBlock))return p;
         }return null;
     }
     /** A bounded local step out of a newly obstructed worker cell; do not teleport across the plot. */
@@ -668,6 +669,34 @@ public final class ConstructorBuilder {
         d.active=false;d.setDirty();recoveryAttempts=0;
         BlockPos feet=new BlockPos(x,(int)Math.floor(visualY),z);
         announce(level.getServer(),level,"Pausado: no pude salir de "+x+" "+feet.getY()+" "+z+". Bloque a los pies: "+net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(feet).getBlock())+". Conservé las tareas pendientes; retiren el obstáculo y usen iniciar.");
+    }
+    /** Follow the floor near the previous foot level, including paving, not a roof from the heightmap. */
+    private BlockPos navigationStep(ServerLevel level,ConstructorData d,int x,int z,int referenceY){
+        BlockPos p=standingGround(level,x,z,referenceY);if(p==null)return null;
+        if(isWalkableGround(level,p)||p.getY()<=d.centerY)return p;
+        for(int dx=-2;dx<=2;dx++)for(int dz=-2;dz<=2;dz++){
+            BlockPos nativeGround=surface(level,x+dx,z+dz);
+            if(nativeGround!=null&&Math.abs(nativeGround.getY()-p.getY())<=1)return p;
+        }return null;
+    }
+    private double footHeight(ServerLevel level,BlockPos p){
+        var shape=level.getBlockState(p).getCollisionShape(level,p);
+        return p.getY()+(shape.isEmpty()?1:Math.min(1,shape.max(Direction.Axis.Y)));
+    }
+    private boolean roadWorkVisible(ServerLevel level,BlockPos from,BlockPos target){
+        // Work within reach from a sidewalk/diagonal, but do not act through a house wall or foliage.
+        int dx=target.getX()-from.getX(),dz=target.getZ()-from.getZ(),steps=Math.max(Math.abs(dx),Math.abs(dz));
+        for(int i=1;i<steps;i++){
+            int x=from.getX()+(int)Math.round((double)dx*i/steps),z=from.getZ()+(int)Math.round((double)dz*i/steps);
+            int y=(int)Math.floor(from.getY()+1+(double)(target.getY()-from.getY())*i/steps);
+            BlockPos q=new BlockPos(x,y,z);BlockState s=level.getBlockState(q);
+            if(!s.getCollisionShape(level,q).isEmpty()&&!earth(s)&&!s.is(Blocks.DIRT_PATH))return false;
+        }return true;
+    }
+    private String accessReason(ServerLevel level,CompoundTag task,int reachableCount){
+        BlockPos p=new BlockPos(task.getInt("x"),task.getInt("y"),task.getInt("z"));
+        if(!level.hasChunkAt(p))return "chunk del trabajo no cargado; conservado para reintento";
+        return "sin posición de trabajo conectada; suelo "+net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(p).getBlock())+", "+reachableCount+" posiciones transitables revisadas";
     }
     private BlockPos surface(ServerLevel level,int x,int z){
         BlockPos probe=new BlockPos(x,level.getMinBuildHeight(),z);if(!level.hasChunkAt(probe))return null;

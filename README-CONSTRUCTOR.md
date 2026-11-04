@@ -53,6 +53,15 @@ La farola nueva es simétrica: base de andesita pulida, pared de diorita, poste 
 
 Al terminar entrega automáticamente un informe con tareas completadas por categoría, bloques modificados, conversiones Lootr, trabajos inaccesibles, condiciones cambiadas, colocaciones parciales y hasta cuatro ejemplos con coordenadas. Incluye sugerencias concretas si faltaron caminos, accesos o espacio para el perímetro. El último informe queda persistido y puede consultarse con el `estado` existente. El informe cuenta resultados ejecutados, no todas las oportunidades posibles ni una garantía de aldea terminada.
 
+## Accesos 0.4.3 / test16
+
+- Mantiene la velocidad de test15. La velocidad no controla las condiciones de escaneo, colocación ni pausa.
+- Navegación a la altura del suelo próximo, incluyendo pavimento, losas y escalones. Limita la elevación de superficies fabricadas según el terreno cercano para no usar un tejado como atajo. Los pies siguen la altura de las losas y caminos.
+- Los trabajos de camino pueden hacerse desde posiciones cercanas, diagonales o sobre el propio tramo, en vez de exigir uno de cuatro vecinos inmediatos. Evita trabajar a través de muros en los puntos intermedios.
+- Si sigue faltando acceso, el informe incluye el material de suelo de la tarea y cuántas posiciones transitables comprobó. Conserva los pendientes para iniciar.
+- Prueba Forge de reparación atravesando una banda de pavimento, paso sobre una losa y selección del suelo bajo un alero.
+- Iniciar retoma la asignación existente. Para ampliar o renovar el análisis es necesario crear 128 e iniciar; no convierte automáticamente una zona de 64×64 en 128×128.
+
 ## Relleno 0.4.2 / test15
 
 - Otro 30% de velocidad al caminar: 0,16848 bloques/tick. Farolas con ritmo y separación mínima de 14 bloques, respetando las ya existentes.
