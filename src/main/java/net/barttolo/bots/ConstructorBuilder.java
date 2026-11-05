@@ -1049,7 +1049,7 @@ public final class ConstructorBuilder {
         return true;
     }
     private void queueEarthColumn(ServerLevel level,ConstructorData d,BlockPos p,int target,boolean stone){
-        for(int y=target+2;y>p.getY();y--){BlockPos cover=new BlockPos(p.getX(),y,p.getZ());if(!level.getBlockState(cover).isAir()&&terrainCover(level,cover))pending.add(new Placement(cover,Blocks.AIR.defaultBlockState(),true));}
+        for(int y=target+2;y>target;y--){BlockPos cover=new BlockPos(p.getX(),y,p.getZ());if(!level.getBlockState(cover).isAir()&&terrainCover(level,cover))pending.add(new Placement(cover,Blocks.AIR.defaultBlockState(),true));}
         for(int y=p.getY()+1;y<=target;y++)pending.add(new Placement(new BlockPos(p.getX(),y,p.getZ()),stone?Blocks.COBBLESTONE.defaultBlockState():y==target?(roadReserve.contains(key(p))?Blocks.DIRT_PATH.defaultBlockState():Blocks.GRASS_BLOCK.defaultBlockState()):Blocks.DIRT.defaultBlockState(),true));
     }
     private void planSurfaceRepairs(ServerLevel level,ConstructorData d){
