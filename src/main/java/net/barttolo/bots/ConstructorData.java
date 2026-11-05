@@ -11,15 +11,14 @@ public final class ConstructorData extends SavedData {
     public String dimension="minecraft:overworld";
     public int centerX,centerY,centerZ,width=64,cursor,taskCursor,placed,skipped,holesFound,roadsFound,stoneFound;
     public boolean configured,active,scanning=true,finished,auditOnly,reviewPending;
-    public boolean bounded,markerSearch,staged;
-    public int boundMinX,boundMaxX,boundMinZ,boundMaxZ,workStage;
-    public final ListTag cornerMarkers=new ListTag();
-    public int minX(){return bounded?boundMinX:centerX-width/2;}
-    public int minZ(){return bounded?boundMinZ:centerZ-width/2;}
-    public int spanX(){return bounded?boundMaxX-boundMinX+1:width;}
-    public int spanZ(){return bounded?boundMaxZ-boundMinZ+1:width;}
-    public boolean contains(int x,int z){return x>=minX()&&x<minX()+spanX()&&z>=minZ()&&z<minZ()+spanZ();}
-    public String areaLabel(){return spanX()+"×"+spanZ()+(bounded?" (bedrock)":"");}
+    public boolean staged;
+    public int workStage;
+    public int minX(){return centerX-width/2;}
+    public int minZ(){return centerZ-width/2;}
+    public int spanX(){return width;}
+    public int spanZ(){return width;}
+    public boolean contains(int x,int z){return x>=minX()&&x<minX()+width&&z>=minZ()&&z<minZ()+width;}
+    public String areaLabel(){return width+"×"+width;}
     public int chestCursor,chestsFound,chestsConverted,chestsFailed,chestsBoundary;
     public boolean chestsDone,chestsPaused;
     public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag(),roadCells=new ListTag(),retryTasks=new ListTag(),auditCarry=new ListTag();
@@ -38,8 +37,7 @@ public final class ConstructorData extends SavedData {
         d.width=tag.contains("width")?tag.getInt("width"):64;d.cursor=tag.getInt("cursor");d.taskCursor=tag.getInt("taskCursor");
         d.placed=tag.getInt("placed");d.skipped=tag.getInt("skipped");d.holesFound=tag.getInt("holesFound");d.roadsFound=tag.getInt("roadsFound");d.stoneFound=tag.getInt("stoneFound");d.configured=tag.getBoolean("configured");
         d.chestCursor=tag.getInt("chestCursor");d.chestsFound=tag.getInt("chestsFound");d.chestsConverted=tag.getInt("chestsConverted");d.chestsFailed=tag.getInt("chestsFailed");d.chestsBoundary=tag.getInt("chestsBoundary");d.chestsDone=!tag.contains("chestsDone")||tag.getBoolean("chestsDone");d.chestsPaused=tag.getBoolean("chestsPaused");
-        d.bounded=tag.getBoolean("bounded");d.markerSearch=tag.getBoolean("markerSearch");d.staged=tag.getBoolean("staged");d.workStage=tag.getInt("workStage");
-        d.boundMinX=tag.getInt("boundMinX");d.boundMaxX=tag.getInt("boundMaxX");d.boundMinZ=tag.getInt("boundMinZ");d.boundMaxZ=tag.getInt("boundMaxZ");d.cornerMarkers.addAll(tag.getList("cornerMarkers",10));
+        d.staged=tag.getBoolean("staged");d.workStage=tag.getInt("workStage");
         d.active=tag.getBoolean("active");d.finished=tag.getBoolean("finished");d.auditOnly=tag.getBoolean("auditOnly");
         if(tag.contains("scanning")){
             d.scanning=tag.getBoolean("scanning");d.tasks.addAll(tag.getList("tasks",10));
@@ -52,6 +50,15 @@ public final class ConstructorData extends SavedData {
         d.reviewPending=tag.getBoolean("reviewPending");d.retryPass=tag.getInt("retryPass");d.retryBaseline=tag.getInt("retryBaseline");d.retryTasks.addAll(tag.getList("retryTasks",10));
         // Earlier versions marked zones finished even with unresolved work; recheck their stored plan on iniciar.
         if(!tag.contains("retryTasks")&&d.finished&&!d.deferred.isEmpty()){d.finished=false;d.reviewPending=true;d.retryTasks.addAll(d.tasks.copy());}
+        // Old marker assignments must never resume their rectangular plan after this update.
+        // Keep construction ownership, but pause and rebuild a square audit before changing more blocks.
+        if(tag.getBoolean("bounded")||tag.getBoolean("markerSearch")){
+            d.active=false;d.scanning=true;d.finished=false;d.reviewPending=false;d.auditOnly=false;d.staged=true;d.workStage=0;d.cursor=0;d.taskCursor=0;
+            d.tasks.clear();d.retryTasks.clear();d.auditCarry.clear();d.roadCells.clear();d.doors.clear();d.roofs.clear();d.pendingExamples.clear();
+            d.lastReport="";d.landscapeReport="pendiente";d.villageReport="pendiente";d.completed=new CompoundTag();d.deferred=new CompoundTag();
+            d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;d.satisfiedJobs=0;d.retryPass=0;d.retryBaseline=0;
+            d.chestCursor=0;d.chestsDone=false;d.chestsPaused=true;
+        }
         return d;
     }
     public CompoundTag task(int index){return tasks.getCompound(index);}
@@ -59,8 +66,8 @@ public final class ConstructorData extends SavedData {
         CompoundTag tag=new CompoundTag();tag.putInt("type",type);tag.putInt("x",x);tag.putInt("y",y);tag.putInt("z",z);tag.putInt("direction",direction);tasks.add(tag);
     }
     @Override public CompoundTag save(CompoundTag tag){
-        tag.putBoolean("bounded",bounded);tag.putBoolean("markerSearch",markerSearch);tag.putBoolean("staged",staged);tag.putInt("workStage",workStage);
-        tag.putInt("boundMinX",boundMinX);tag.putInt("boundMaxX",boundMaxX);tag.putInt("boundMinZ",boundMinZ);tag.putInt("boundMaxZ",boundMaxZ);tag.put("cornerMarkers",cornerMarkers.copy());
+        for(String old:new String[]{"bounded","markerSearch","boundMinX","boundMaxX","boundMinZ","boundMaxZ","cornerMarkers"})tag.remove(old);
+        tag.putBoolean("staged",staged);tag.putInt("workStage",workStage);
         tag.putString("dimension",dimension);tag.putInt("centerX",centerX);tag.putInt("centerY",centerY);tag.putInt("centerZ",centerZ);
         tag.putInt("width",width);tag.putInt("cursor",cursor);tag.putInt("taskCursor",taskCursor);tag.putInt("placed",placed);tag.putInt("skipped",skipped);tag.putInt("holesFound",holesFound);tag.putInt("roadsFound",roadsFound);tag.putInt("stoneFound",stoneFound);
         tag.putBoolean("configured",configured);tag.putBoolean("active",active);tag.putBoolean("scanning",scanning);tag.putBoolean("finished",finished);tag.putBoolean("auditOnly",auditOnly);
