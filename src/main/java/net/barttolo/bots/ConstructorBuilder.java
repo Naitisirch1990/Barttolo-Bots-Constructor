@@ -297,7 +297,7 @@ public final class ConstructorBuilder {
     private BlockPos surface(ServerLevel level,int x,int z){BlockPos p=rawSurface(level,x,z);if(p==null)return null;for(int i=0;i<=2;i++){BlockPos q=p.below(i);if(navigationHeadroom(level,q)&&!level.getBlockState(q).getCollisionShape(level,q).isEmpty()&&!(level.getBlockState(q).getBlock() instanceof LeavesBlock)&&level.getFluidState(q).isEmpty())return q;}return null;}
     private BlockPos findSafeStart(ServerLevel level,ConstructorData d){
         for(int radius=0;radius<=8;radius++)for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++){if(Math.abs(dx)+Math.abs(dz)!=radius||!d.contains(d.centerX+dx,d.centerZ+dz))continue;
-            level.getChunk(Math.floorDiv(d.centerX+dx,16),Math.floorDiv(d.centerZ+dz,16));BlockPos p=surface(level,d.centerX+dx,d.centerZ+dz);if(p!=null)return p;
+            level.getChunk(Math.floorDiv(d.centerX+dx,16),Math.floorDiv(d.centerZ+dz,16));BlockPos p=surface(level,d.centerX+dx,d.centerZ+dz);if(p!=null&&isWalkableGround(level,p))return p;
         }return null;
     }
     private boolean isWalkableGround(ServerLevel level,BlockPos p){if(!navigationHeadroom(level,p))return false;BlockState s=level.getBlockState(p);return s.is(Blocks.GRASS_BLOCK)||s.is(Blocks.DIRT)||s.is(Blocks.DIRT_PATH)||s.is(Blocks.FARMLAND)||s.is(Blocks.STONE)||s.is(Blocks.GRAVEL)||s.is(Blocks.SAND)||s.is(Blocks.PODZOL)||s.is(Blocks.ROOTED_DIRT)||s.is(Blocks.COARSE_DIRT);}

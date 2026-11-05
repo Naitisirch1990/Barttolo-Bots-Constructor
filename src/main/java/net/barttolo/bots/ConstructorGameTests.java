@@ -86,7 +86,9 @@ public class ConstructorGameTests {
         h.assertTrue(c.equals(call(b,"standingGround",new Class[]{ServerLevel.class,int.class,int.class,int.class},level,c.getX(),c.getZ(),c.getY())),"crops must not falsely strand the worker");
         BlockPos slab=c.east(2);level.setBlockAndUpdate(slab,Blocks.STONE_BRICK_SLAB.defaultBlockState());h.assertTrue(Math.abs((double)call(b,"footHeight",new Class[]{ServerLevel.class,BlockPos.class},level,slab)-(slab.getY()+.5))<.001,"follow the slab surface");
         BlockPos paving=c.east(4);level.setBlockAndUpdate(paving,Blocks.STONE_BRICKS.defaultBlockState());h.assertTrue(paving.equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,paving.getX(),paving.getZ(),c.getY())),"walking across paving must remain possible");
-        level.setBlockAndUpdate(c.north(3).above(3),Blocks.OAK_PLANKS.defaultBlockState());h.assertTrue(c.north(3).equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,c.getX(),c.getZ()-3,c.getY())),"do not select a roof instead of the ground");h.succeed();
+        level.setBlockAndUpdate(c.north(3).above(3),Blocks.OAK_PLANKS.defaultBlockState());h.assertTrue(c.north(3).equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,c.getX(),c.getZ()-3,c.getY())),"do not select a roof instead of the ground");
+        d.centerZ=c.getZ()-3;BlockPos start=(BlockPos)call(b,"findSafeStart",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(start!=null&&start.getY()==c.getY(),"creating over a wooden roof must select nearby outdoor ground");h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)
     public static void blockedPlantsDoNotPreventReachableWorkAndPersistHonestly(GameTestHelper h)throws Exception{
