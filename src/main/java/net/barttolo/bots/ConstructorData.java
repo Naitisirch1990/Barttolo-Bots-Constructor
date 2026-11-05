@@ -3,77 +3,38 @@ package net.barttolo.bots;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
-/** Persistent assignment, stationary scan cursor, work queue and progress. */
+/** Gardening assignments. Old terrain/loot plans are never executable in this schema. */
 public final class ConstructorData extends SavedData {
-    public String dimension="minecraft:overworld";
-    public int centerX,centerY,centerZ,width=64,cursor,taskCursor,placed,skipped,holesFound,roadsFound,stoneFound;
+    public static final int SCHEMA=1;
+    public String dimension="minecraft:overworld",lastReport="";
+    public int centerX,centerY,centerZ,width=64,cursor,taskCursor,placed,completedJobs,skipped;
     public boolean configured,active,scanning=true,finished,auditOnly,reviewPending;
-    public boolean staged;
-    public int workStage;
+    public final ListTag tasks=new ListTag(),retryTasks=new ListTag(),memory=new ListTag();
     public int minX(){return centerX-width/2;}
     public int minZ(){return centerZ-width/2;}
-    public int spanX(){return width;}
-    public int spanZ(){return width;}
     public boolean contains(int x,int z){return x>=minX()&&x<minX()+width&&z>=minZ()&&z<minZ()+width;}
     public String areaLabel(){return width+"×"+width;}
-    public int chestCursor,chestsFound,chestsConverted,chestsFailed,chestsBoundary;
-    public boolean chestsDone,chestsPaused;
-    public final ListTag tasks=new ListTag(),doors=new ListTag(),roofs=new ListTag(),memory=new ListTag(),roadCells=new ListTag(),retryTasks=new ListTag(),auditCarry=new ListTag();
-    public String villageReport="pendiente",lastReport="",landscapeReport="pendiente";
-    public CompoundTag completed=new CompoundTag(),deferred=new CompoundTag();
-    public int inaccessibleJobs,invalidJobs,failedPlacements,partialJobs,satisfiedJobs,retryPass,retryBaseline;
-    public final ListTag pendingExamples=new ListTag();
-
-    public static ConstructorData get(MinecraftServer server){
-        ServerLevel level=server.overworld();
-        return level.getDataStorage().computeIfAbsent(ConstructorData::load,ConstructorData::new,"barttolobots_constructor");
-    }
+    public static ConstructorData get(MinecraftServer server){return server.overworld().getDataStorage().computeIfAbsent(ConstructorData::load,ConstructorData::new,"barttolobots_constructor");}
+    public CompoundTag task(int i){return tasks.getCompound(i);}
+    public void addTask(int type,int x,int y,int z){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",x);t.putInt("y",y);t.putInt("z",z);tasks.add(t);}
     public static ConstructorData load(CompoundTag tag){
-        ConstructorData d=new ConstructorData();d.dimension=tag.getString("dimension");
-        d.centerX=tag.getInt("centerX");d.centerY=tag.getInt("centerY");d.centerZ=tag.getInt("centerZ");
-        d.width=tag.contains("width")?tag.getInt("width"):64;d.cursor=tag.getInt("cursor");d.taskCursor=tag.getInt("taskCursor");
-        d.placed=tag.getInt("placed");d.skipped=tag.getInt("skipped");d.holesFound=tag.getInt("holesFound");d.roadsFound=tag.getInt("roadsFound");d.stoneFound=tag.getInt("stoneFound");d.configured=tag.getBoolean("configured");
-        d.chestCursor=tag.getInt("chestCursor");d.chestsFound=tag.getInt("chestsFound");d.chestsConverted=tag.getInt("chestsConverted");d.chestsFailed=tag.getInt("chestsFailed");d.chestsBoundary=tag.getInt("chestsBoundary");d.chestsDone=!tag.contains("chestsDone")||tag.getBoolean("chestsDone");d.chestsPaused=tag.getBoolean("chestsPaused");
-        d.staged=tag.getBoolean("staged");d.workStage=tag.getInt("workStage");
-        d.active=tag.getBoolean("active");d.finished=tag.getBoolean("finished");d.auditOnly=tag.getBoolean("auditOnly");
-        if(tag.contains("scanning")){
-            d.scanning=tag.getBoolean("scanning");d.tasks.addAll(tag.getList("tasks",10));
-        }else{
-            // The earlier prototype used the cursor for its moving scan, not this stationary survey.
-            d.cursor=0;d.taskCursor=0;d.scanning=true;d.finished=false;
-        }
-        d.auditCarry.addAll(tag.getList("auditCarry",10));d.roadCells.addAll(tag.getList("roadCells",10));d.satisfiedJobs=tag.getInt("satisfiedJobs");d.doors.addAll(tag.getList("doors",10));d.roofs.addAll(tag.getList("roofs",10));d.memory.addAll(tag.getList("memory",10));d.villageReport=tag.getString("villageReport");
-        d.landscapeReport=tag.getString("landscapeReport");d.lastReport=tag.getString("lastReport");d.completed=tag.getCompound("completed");d.deferred=tag.getCompound("deferred");d.inaccessibleJobs=tag.getInt("inaccessibleJobs");d.invalidJobs=tag.getInt("invalidJobs");d.failedPlacements=tag.getInt("failedPlacements");d.partialJobs=tag.getInt("partialJobs");d.pendingExamples.addAll(tag.getList("pendingExamples",10));
-        d.reviewPending=tag.getBoolean("reviewPending");d.retryPass=tag.getInt("retryPass");d.retryBaseline=tag.getInt("retryBaseline");d.retryTasks.addAll(tag.getList("retryTasks",10));
-        // Earlier versions marked zones finished even with unresolved work; recheck their stored plan on iniciar.
-        if(!tag.contains("retryTasks")&&d.finished&&!d.deferred.isEmpty()){d.finished=false;d.reviewPending=true;d.retryTasks.addAll(d.tasks.copy());}
-        // Old marker assignments must never resume their rectangular plan after this update.
-        // Keep construction ownership, but pause and rebuild a square audit before changing more blocks.
-        if(tag.getBoolean("bounded")||tag.getBoolean("markerSearch")){
-            d.active=false;d.scanning=true;d.finished=false;d.reviewPending=false;d.auditOnly=false;d.staged=true;d.workStage=0;d.cursor=0;d.taskCursor=0;
-            d.tasks.clear();d.retryTasks.clear();d.auditCarry.clear();d.roadCells.clear();d.doors.clear();d.roofs.clear();d.pendingExamples.clear();
-            d.lastReport="";d.landscapeReport="pendiente";d.villageReport="pendiente";d.completed=new CompoundTag();d.deferred=new CompoundTag();
-            d.inaccessibleJobs=0;d.invalidJobs=0;d.failedPlacements=0;d.partialJobs=0;d.satisfiedJobs=0;d.retryPass=0;d.retryBaseline=0;
-            d.chestCursor=0;d.chestsDone=false;d.chestsPaused=true;
-        }
+        ConstructorData d=new ConstructorData();if(tag.contains("dimension"))d.dimension=tag.getString("dimension");
+        d.centerX=tag.getInt("centerX");d.centerY=tag.getInt("centerY");d.centerZ=tag.getInt("centerZ");d.width=Math.max(32,Math.min(256,tag.contains("width")?tag.getInt("width"):64));
+        d.configured=tag.getBoolean("configured");d.memory.addAll(tag.getList("memory",10));
+        if(tag.getInt("gardenSchema")!=SCHEMA)return d; // pause and re-audit legacy assignments; never run old fills/fences/Lootr
+        d.active=tag.getBoolean("active");d.scanning=tag.getBoolean("scanning");d.finished=tag.getBoolean("finished");d.auditOnly=tag.getBoolean("auditOnly");d.reviewPending=tag.getBoolean("reviewPending");
+        d.cursor=0;d.taskCursor=tag.getInt("taskCursor");d.placed=tag.getInt("placed");d.completedJobs=tag.getInt("completedJobs");d.skipped=tag.getInt("skipped");d.lastReport=tag.getString("lastReport");
+        d.tasks.addAll(tag.getList("tasks",10));d.retryTasks.addAll(tag.getList("retryTasks",10));
+        if(d.scanning){d.tasks.clear();d.taskCursor=0;} // rebuild the transient full survey after a restart
+        for(int i=d.tasks.size()-1;i>=0;i--)if(!ConstructorBuilder.gardenTask(d.task(i).getInt("type"))){d.tasks.remove(i);d.taskCursor=Math.min(d.taskCursor,i);}
         return d;
     }
-    public CompoundTag task(int index){return tasks.getCompound(index);}
-    public void addTask(int type,int x,int y,int z,int direction){
-        CompoundTag tag=new CompoundTag();tag.putInt("type",type);tag.putInt("x",x);tag.putInt("y",y);tag.putInt("z",z);tag.putInt("direction",direction);tasks.add(tag);
-    }
     @Override public CompoundTag save(CompoundTag tag){
-        for(String old:new String[]{"bounded","markerSearch","boundMinX","boundMaxX","boundMinZ","boundMaxZ","cornerMarkers"})tag.remove(old);
-        tag.putBoolean("staged",staged);tag.putInt("workStage",workStage);
-        tag.putString("dimension",dimension);tag.putInt("centerX",centerX);tag.putInt("centerY",centerY);tag.putInt("centerZ",centerZ);
-        tag.putInt("width",width);tag.putInt("cursor",cursor);tag.putInt("taskCursor",taskCursor);tag.putInt("placed",placed);tag.putInt("skipped",skipped);tag.putInt("holesFound",holesFound);tag.putInt("roadsFound",roadsFound);tag.putInt("stoneFound",stoneFound);
-        tag.putBoolean("configured",configured);tag.putBoolean("active",active);tag.putBoolean("scanning",scanning);tag.putBoolean("finished",finished);tag.putBoolean("auditOnly",auditOnly);
-        tag.putInt("chestCursor",chestCursor);tag.putInt("chestsFound",chestsFound);tag.putInt("chestsConverted",chestsConverted);tag.putInt("chestsFailed",chestsFailed);tag.putInt("chestsBoundary",chestsBoundary);tag.putBoolean("chestsDone",chestsDone);tag.putBoolean("chestsPaused",chestsPaused);
-        tag.put("doors",doors.copy());tag.put("roofs",roofs.copy());tag.put("memory",memory.copy());tag.putString("villageReport",villageReport);
-        tag.putString("landscapeReport",landscapeReport);tag.putString("lastReport",lastReport);tag.put("completed",completed.copy());tag.put("deferred",deferred.copy());tag.putInt("inaccessibleJobs",inaccessibleJobs);tag.putInt("invalidJobs",invalidJobs);tag.putInt("failedPlacements",failedPlacements);tag.putInt("partialJobs",partialJobs);tag.put("pendingExamples",pendingExamples.copy());
-        tag.put("auditCarry",auditCarry.copy());tag.put("roadCells",roadCells.copy());tag.putInt("satisfiedJobs",satisfiedJobs);tag.put("tasks",tasks.copy());tag.put("retryTasks",retryTasks.copy());tag.putBoolean("reviewPending",reviewPending);tag.putInt("retryPass",retryPass);tag.putInt("retryBaseline",retryBaseline);return tag;
+        tag.putInt("gardenSchema",SCHEMA);tag.putString("dimension",dimension);tag.putInt("centerX",centerX);tag.putInt("centerY",centerY);tag.putInt("centerZ",centerZ);tag.putInt("width",width);
+        tag.putBoolean("configured",configured);tag.putBoolean("active",active);tag.putBoolean("scanning",scanning);tag.putBoolean("finished",finished);tag.putBoolean("auditOnly",auditOnly);tag.putBoolean("reviewPending",reviewPending);
+        tag.putInt("taskCursor",taskCursor);tag.putInt("placed",placed);tag.putInt("completedJobs",completedJobs);tag.putInt("skipped",skipped);tag.putString("lastReport",lastReport);
+        tag.put("tasks",tasks.copy());tag.put("retryTasks",retryTasks.copy());tag.put("memory",memory.copy());return tag;
     }
 }
