@@ -24,8 +24,8 @@ import java.util.*;
 
 /** Gardener only: every edit is above existing grass. No terrain, roads, fences or chest conversion. */
 public final class ConstructorBuilder {
-    static final int TUFT=100,FLOWER=101,TREE=102,LAMP=103;
-    private static final int HALO=6,SCAN_BATCH=256,LAMP_SPACING=16,WORK_DELAY_TICKS=10;
+    static final int TUFT=100,FLOWER=101,TREE=102,LAMP=103,FARM=104,PLAZA=105,BENCH=106,PERGOLA=107,WELL=108,STALL=109,PICNIC=110,POND=111;
+    private static final int HALO=6,SCAN_BATCH=256,LAMP_SPACING=12,WORK_DELAY_TICKS=10;
     private static final double WALK_SPEED=.16848;
     private record Placement(BlockPos pos,BlockState state){}
     private record Search(Map<Long,BlockPos> nodes,Map<Long,Long> parents,Map<Long,Integer> costs){}
@@ -39,7 +39,7 @@ public final class ConstructorBuilder {
     private boolean visualInitialized,planLoaded,walking,recoveringRoute,movementPacketPending,announced;
     private int recoveryDelay,recoveryAttempts;
     private double visualX,visualY,visualZ;
-    static boolean gardenTask(int type){return type>=TUFT&&type<=LAMP;}
+    static boolean gardenTask(int type){return type>=TUFT&&type<=POND;}
     private BlockPos pos(CompoundTag t){return new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z"));}
     private long key(BlockPos p){return key(p.getX(),p.getZ());}
     private long key(int x,int z){return ((long)x<<32)|(z&0xffffffffL);}
@@ -71,9 +71,10 @@ public final class ConstructorBuilder {
     public int cancel(CommandSourceStack source){ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.configured=false;d.setDirty();pending.clear();route.clear();walking=false;planLoaded=false;resetActor(source.getServer());source.sendSuccess(()->Component.literal("Asignación cancelada; la decoración colocada se conserva."),false);return 1;}
     public int status(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());String state=!d.configured?"sin área":d.scanning?"inspeccionando":d.reviewPending?"con pendientes":d.finished?"terminado":d.active?"trabajando":"pausado";
-        String info=!d.lastReport.isEmpty()?d.lastReport:"Jardinero "+state+" | "+d.areaLabel()+" | inspección "+d.cursor+"/"+((d.width+2*HALO)*(d.width+2*HALO))+" columnas | tareas "+d.taskCursor+"/"+d.tasks.size()+" | pasto "+count(d,TUFT)+", flores "+count(d,FLOWER)+", árboles "+count(d,TREE)+", farolas "+count(d,LAMP)+" | colocaciones "+d.placed;
+        String info=!d.lastReport.isEmpty()?d.lastReport:"Jardinero "+state+" | "+d.areaLabel()+" | inspección "+d.cursor+"/"+((d.width+2*HALO)*(d.width+2*HALO))+" columnas | tareas "+d.taskCursor+"/"+d.tasks.size()+" | pasto "+count(d,TUFT)+", flores "+count(d,FLOWER)+", árboles "+count(d,TREE)+", farolas "+count(d,LAMP)+", construcciones "+structureCount(d)+" | colocaciones "+d.placed;
         source.sendSuccess(()->Component.literal(info),false);return 1;
     }
+    private int structureCount(ConstructorData d){int n=0;for(int i=0;i<d.tasks.size();i++)if(macro(d.task(i).getInt("type")))n++;return n;}
     private int count(ConstructorData d,int type){int n=0;for(int i=0;i<d.tasks.size();i++)if(d.task(i).getInt("type")==type)n++;return n;}
     public void tick(MinecraftServer server){
         ConstructorData d=ConstructorData.get(server);if(!d.configured)return;ServerLevel level=level(server,d.dimension);if(level==null)return;
@@ -89,13 +90,13 @@ public final class ConstructorBuilder {
     private boolean naturalPlant(BlockState s){return s.is(Blocks.GRASS)||s.is(Blocks.TALL_GRASS)||s.is(Blocks.FERN)||s.is(Blocks.LARGE_FERN)||s.is(BlockTags.FLOWERS)||s.getBlock() instanceof SaplingBlock;}
     private boolean obstacle(ServerLevel level,BlockPos floor){
         if(floor==null||!level.getBlockState(floor).is(Blocks.GRASS_BLOCK))return true;
-        for(int y=1;y<=3;y++){BlockPos p=floor.above(y);BlockState s=level.getBlockState(p);if(!s.isAir()&&!naturalPlant(s))return true;if(!level.getFluidState(p).isEmpty())return true;}
+        for(int y=1;y<=8;y++){BlockPos p=floor.above(y);BlockState s=level.getBlockState(p);if(!s.isAir()&&!naturalPlant(s))return true;if(!level.getFluidState(p).isEmpty())return true;}
         return false;
     }
     private void scanBatch(ServerLevel level,ConstructorData d){
         int w=d.width+HALO*2,total=w*w,stop=Math.min(total,d.cursor+SCAN_BATCH),minX=d.minX()-HALO,minZ=d.minZ()-HALO;
         while(d.cursor<stop){int i=d.cursor++,x=minX+i%w,z=minZ+i/w;level.getChunk(Math.floorDiv(x,16),Math.floorDiv(z,16));BlockPos p=rawSurface(level,x,z);if(p!=null)surveyFloors.put(key(x,z),p);if(obstacle(level,p))obstacles.add(key(x,z));}
-        if(d.cursor>=total){planGarden(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly||!d.active)announce(level.getServer(),level,"Inspección lista en "+d.areaLabel()+": "+count(d,TUFT)+" pastos, "+count(d,FLOWER)+" flores, "+count(d,TREE)+" árboles y "+count(d,LAMP)+" farolas. Usá iniciar para trabajar.");surveyFloors.clear();obstacles.clear();}
+        if(d.cursor>=total){planGarden(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly||!d.active)announce(level.getServer(),level,"Inspección lista en "+d.areaLabel()+": "+count(d,TUFT)+" pastos, "+count(d,FLOWER)+" flores, "+count(d,TREE)+" árboles y "+count(d,LAMP)+" farolas y "+structureCount(d)+" construcciones. Usá iniciar para trabajar.");surveyFloors.clear();obstacles.clear();}
         d.setDirty();
     }
     /** Chebyshev distance to every non-grass/occupied column, including a six-block outside halo. */
@@ -106,24 +107,76 @@ public final class ConstructorBuilder {
             for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++){int nx=x+dx,nz=z+dz;if(nx<0||nx>=w||nz<0||nz>=w)continue;int n=nx+nz*w;if(distance[n]>distance[i]+1){distance[n]=distance[i]+1;open.addLast(n);}}
         }return distance;
     }
+    private boolean macro(int type){return type>=FARM&&type<=POND;}
+    private int macroRadius(int type){return type==BENCH||type==PLAZA?3:4;}
+    private int separation(BlockPos a,BlockPos b){return Math.max(Math.abs(a.getX()-b.getX()),Math.abs(a.getZ()-b.getZ()));}
+    private List<BlockPos> existingSites(ServerLevel level,ConstructorData d,int type){
+        List<BlockPos> result=new ArrayList<>();Set<Long> seen=new HashSet<>();
+        for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);BlockPos p=pos(m);if(m.getInt("type")!=type||!d.dimension.equals(m.getString("dimension"))||!seen.add(key(p)))continue;
+            if(taskSatisfied(level,d,m))result.add(p);
+        }return result;
+    }
+    /** Choose the best translation of a 12-block grid, instead of rejecting small plots by world alignment. */
+    private List<BlockPos> gridSites(ServerLevel level,ConstructorData d,int type,int[] dist,List<BlockPos> lamps,List<CompoundTag> sites){
+        int w=d.width+HALO*2,threshold=type==TREE?5:3;List<List<BlockPos>> phases=new ArrayList<>();for(int i=0;i<144;i++)phases.add(new ArrayList<>());
+        List<BlockPos> existing=existingSites(level,d,type);
+        for(int x=d.minX();x<d.minX()+d.width;x++)for(int z=d.minZ();z<d.minZ()+d.width;z++){
+            BlockPos p=surveyFloors.get(key(x,z));if(p==null||!level.getBlockState(p).is(Blocks.GRASS_BLOCK)||dist[x-d.minX()+HALO+(z-d.minZ()+HALO)*w]<=threshold)continue;
+            if(existing.stream().anyMatch(q->separation(p,q)<12))continue;
+            if(type==TREE&&(lamps.stream().anyMatch(q->separation(p,q)<6)||sites.stream().anyMatch(t->separation(p,pos(t))<=macroRadius(t.getInt("type"))+5)))continue;
+            phases.get(Math.floorMod(x,12)+Math.floorMod(z,12)*12).add(p);
+        }
+        List<Integer> order=new ArrayList<>();for(int i=0;i<144;i++)order.add(i);order.sort(Comparator.<Integer>comparingInt(i->phases.get(i).size()).reversed().thenComparingInt(i->i));
+        for(int phase:order){List<BlockPos> valid=new ArrayList<>();for(BlockPos p:phases.get(phase))if(siteValid(level,d,p,type,false))valid.add(p);if(!valid.isEmpty())return valid;}
+        return List.of();
+    }
     private void planGarden(ServerLevel level,ConstructorData d){
-        d.tasks.clear();int w=d.width+HALO*2;int[] dist=distances(d);List<BlockPos> lamps=new ArrayList<>();
-        for(int x=d.minX();x<d.minX()+d.width;x++)for(int z=d.minZ();z<d.minZ()+d.width;z++){
-            if(Math.floorMod(x,LAMP_SPACING)!=0||Math.floorMod(z,LAMP_SPACING)!=0)continue;BlockPos p=surveyFloors.get(key(x,z));
-            int distance=dist[x-d.minX()+HALO+(z-d.minZ()+HALO)*w];if(p!=null&&distance>3&&siteValid(level,d,p,LAMP,false)){d.addTask(LAMP,x,p.getY(),z);lamps.add(p);}
-        }
-        for(int x=d.minX();x<d.minX()+d.width;x++)for(int z=d.minZ();z<d.minZ()+d.width;z++){
-            BlockPos p=surveyFloors.get(key(x,z));if(p==null||!level.getBlockState(p).is(Blocks.GRASS_BLOCK)||!level.getBlockState(p.above()).isAir())continue;
-            int distance=dist[x-d.minX()+HALO+(z-d.minZ()+HALO)*w];
-            if((distance==1||distance==3)&&Math.floorMod(x+z,2)==0){int type=Math.floorMod(x*31+z*17,3)==0?FLOWER:TUFT;d.addTask(type,x,p.getY(),z);}
-            if(distance>5&&Math.floorMod(x,8)==0&&Math.floorMod(z,8)==0&&Math.floorMod(x*31+z*17,3)==0&&lamps.stream().noneMatch(l->Math.max(Math.abs(l.getX()-p.getX()),Math.abs(l.getZ()-p.getZ()))<=6)&&siteValid(level,d,p,TREE,false)){
-                d.addTask(TREE,x,p.getY(),z);
+        d.tasks.clear();int w=d.width+HALO*2;int[] dist=distances(d);List<CompoundTag> sites=new ArrayList<>();List<BlockPos> lamps=new ArrayList<>(gridSites(level,d,LAMP,dist,List.of(),sites));
+        for(BlockPos p:lamps)d.addTask(LAMP,p.getX(),p.getY(),p.getZ());
+        int existing=0;Set<Long> seen=new HashSet<>();for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);if(macro(m.getInt("type"))&&d.dimension.equals(m.getString("dimension"))&&inside(d,pos(m))&&seen.add(key(pos(m))))existing++;}
+        int limit=Math.min(12,Math.max(2,d.width*d.width/2048)),added=0;int[] types={FARM,PLAZA,BENCH,PERGOLA,PICNIC,STALL,WELL,POND};
+        for(int attempt=0;attempt<types.length&&existing+added<limit;attempt++){
+            int type=types[(attempt+existing)%types.length],r=macroRadius(type);BlockPos best=null;
+            for(int x=d.minX()+r;x<d.minX()+d.width-r&&best==null;x++)for(int z=d.minZ()+r;z<d.minZ()+d.width-r;z++){
+                BlockPos p=surveyFloors.get(key(x,z));if(p==null||dist[x-d.minX()+HALO+(z-d.minZ()+HALO)*w]<=r||sites.stream().anyMatch(t->separation(p,pos(t))<r+macroRadius(t.getInt("type"))+3))continue;
+                long remove=lamps.stream().filter(l->separation(l,p)<=r+3).count();if(!lamps.isEmpty()&&remove==lamps.size())continue;
+                if(siteValid(level,d,p,type,false)){best=p;break;}
             }
+            if(best==null)continue;final BlockPos selected=best;
+            lamps.removeIf(l->separation(l,selected)<=r+3);
+            for(int i=d.tasks.size()-1;i>=0;i--)if(d.task(i).getInt("type")==LAMP&&separation(pos(d.task(i)),selected)<=r+3)d.tasks.remove(i);
+            d.addTask(type,best.getX(),best.getY(),best.getZ());sites.add(d.task(d.tasks.size()-1));added++;
         }
+        for(BlockPos p:gridSites(level,d,TREE,dist,lamps,sites))d.addTask(TREE,p.getX(),p.getY(),p.getZ());
+        for(int x=d.minX();x<d.minX()+d.width;x++)for(int z=d.minZ();z<d.minZ()+d.width;z++){
+            BlockPos p=surveyFloors.get(key(x,z));if(p==null||!level.getBlockState(p).is(Blocks.GRASS_BLOCK)||!level.getBlockState(p.above()).isAir()||sites.stream().anyMatch(t->separation(p,pos(t))<=macroRadius(t.getInt("type"))))continue;
+            int distance=dist[x-d.minX()+HALO+(z-d.minZ()+HALO)*w];if((distance==1||distance==3)&&Math.floorMod(x+z,2)==0){int type=Math.floorMod(x*31+z*17,3)==0?FLOWER:TUFT;d.addTask(type,x,p.getY(),z);}
+        }
+    }
+    private List<Placement> structureBlueprint(BlockPos base,int type){
+        LinkedHashMap<BlockPos,BlockState> blocks=new LinkedHashMap<>();
+        if(type==PLAZA){
+            for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)blocks.put(base.offset(x,1,z),(Math.floorMod(x+z,2)==0?Blocks.STONE_BRICKS:Blocks.ANDESITE).defaultBlockState());
+            for(int x:new int[]{-1,0,1})blocks.put(base.offset(x,2,-1),Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,Direction.SOUTH));
+            for(int x:new int[]{-2,2}){blocks.put(base.offset(x,1,1),Blocks.MOSS_BLOCK.defaultBlockState());blocks.put(base.offset(x,2,1),Blocks.FLOWERING_AZALEA.defaultBlockState());}
+            blocks.put(base.offset(0,2,1),Blocks.CHISELED_STONE_BRICKS.defaultBlockState());blocks.put(base.offset(0,3,1),Blocks.LANTERN.defaultBlockState());
+            blocks.put(base.offset(0,1,3),Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,Direction.NORTH));
+        }else{
+            int original=switch(type){case FARM->6;case BENCH->VillageCatalog.BENCH;case PERGOLA->VillageCatalog.PERGOLA;case WELL->VillageCatalog.WELL;case STALL->VillageCatalog.STALL;case PICNIC->VillageCatalog.PICNIC;case POND->VillageCatalog.POND;default->throw new IllegalArgumentException("Unknown garden structure");};
+            int variant=Math.floorMod(base.getX()*31+base.getZ()*17,type==FARM?3:2);
+            var recipe=VillageCatalog.build(original,variant,Blocks.OAK_FENCE,Blocks.OAK_LOG,Blocks.OAK_SLAB,Blocks.OAK_STAIRS,Blocks.OAK_TRAPDOOR);
+            int lift=recipe.stream().anyMatch(p->p.offset().getY()<0)?2:1,r=type==BENCH?2:3;
+            for(int x=-r;x<=r;x++)for(int z=-r;z<=r;z++)for(int y=1;y<=lift;y++)blocks.put(base.offset(x,y,z),Blocks.STONE_BRICKS.defaultBlockState());
+            for(var part:recipe)blocks.put(base.offset(part.offset()).above(lift),part.state());
+            blocks.put(base.offset(0,1,r+1),Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,Direction.NORTH));
+            if(lift==2)blocks.put(base.offset(0,2,r),Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,Direction.NORTH));
+        }
+        List<Placement> result=new ArrayList<>();blocks.forEach((p,state)->result.add(new Placement(p,state)));result.sort(Comparator.<Placement>comparingInt(p->p.state().is(Blocks.WATER)?1:p.state().getBlock() instanceof CropBlock||p.state().is(Blocks.LILY_PAD)?2:0).thenComparingInt(p->p.pos().getY()));return result;
     }
     private List<Placement> blueprint(ServerLevel level,BlockPos base,int type){
         if(type==TUFT)return List.of(new Placement(base.above(),Blocks.GRASS.defaultBlockState()));
         if(type==FLOWER)return List.of(new Placement(base.above(),flowerFor(base.getX(),base.getZ()).defaultBlockState()));
+        if(macro(type))return structureBlueprint(base,type);
         List<Placement> out=new ArrayList<>();
         if(type==LAMP){
             out.add(new Placement(base.above(),Blocks.POLISHED_ANDESITE.defaultBlockState()));out.add(new Placement(base.above(2),Blocks.DIORITE_WALL.defaultBlockState()));
@@ -146,22 +199,45 @@ public final class ConstructorBuilder {
             int x=base.getX()+dx,z=base.getZ()+dz;if(own.contains(key(x,z)))continue;BlockPos p=rawSurface(level,x,z);if(obstacle(level,p))return false;
         }return true;
     }
-    private boolean siteValid(ServerLevel level,ConstructorData d,BlockPos base,int type,boolean started){
-        if(!gardenTask(type)||!inside(d,base)||!level.hasChunkAt(base)||!level.getBlockState(base).is(Blocks.GRASS_BLOCK))return false;
-        List<Placement> parts=blueprint(level,base,type);Set<Long> own=new HashSet<>();if(started)for(Placement p:parts)own.add(key(p.pos()));
-        if(type==TREE||type==LAMP){int radius=type==TREE?2:1;
-            for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++){BlockPos p=base.offset(dx,0,dz);if(!inside(d,p)||!level.getBlockState(p).is(Blocks.GRASS_BLOCK))return false;}
-            if(!liveClearance(level,base,type==TREE?5:3,own))return false;
+    private void ignoreOwnedLamps(ServerLevel level,ConstructorData d,BlockPos base,Set<Long> own){
+        // A nearby garden lamp is allowed beside a tree; buildings and paths still require five clear blocks.
+        for(int i=0;i<d.memory.size();i++){CompoundTag m=d.memory.getCompound(i);BlockPos p=pos(m);
+            if(m.getInt("type")==LAMP&&d.dimension.equals(m.getString("dimension"))&&separation(base,p)>=6&&separation(base,p)<=7&&taskSatisfied(level,d,m))for(Placement part:blueprint(level,p,LAMP))own.add(key(part.pos()));
         }
-        for(Placement part:parts){BlockPos p=part.pos();if(!inside(d,p)||p.getY()<=base.getY()||p.getY()>=level.getMaxBuildHeight()||!level.getFluidState(p).isEmpty()||level.getBlockEntity(p)!=null)return false;
+    }
+    private boolean siteValid(ServerLevel level,ConstructorData d,BlockPos base,int type,boolean started){
+        if(!gardenTask(type)||!inside(d,base)||!level.hasChunkAt(base))return false;
+        if(!level.getBlockState(base).is(Blocks.GRASS_BLOCK)){
+            CompoundTag check=new CompoundTag();check.putInt("type",type);check.putInt("x",base.getX());check.putInt("y",base.getY());check.putInt("z",base.getZ());check.putBoolean("started",started);if(!workBase(level,check))return false;
+        }
+        List<Placement> parts=blueprint(level,base,type);Set<Long> own=new HashSet<>();Map<BlockPos,BlockState> expected=new HashMap<>();for(Placement part:parts)expected.put(part.pos(),part.state());
+        if(started)for(Placement p:parts)own.add(key(p.pos()));if(type==TREE)ignoreOwnedLamps(level,d,base,own);
+        if(type==TREE||type==LAMP||macro(type)){int radius=macro(type)?macroRadius(type):type==TREE?2:1;
+            for(int dx=-radius;dx<=radius;dx++)for(int dz=-radius;dz<=radius;dz++){BlockPos p=base.offset(dx,0,dz);if(!inside(d,p))return false;
+                if(!level.getBlockState(p).is(Blocks.GRASS_BLOCK)){
+                    BlockState support=expected.get(p.above());if(!started||!level.getBlockState(p).is(Blocks.DIRT)||support==null||!level.getBlockState(p.above()).is(support.getBlock()))return false;
+                }
+                if(macro(type))for(int y=1;y<=7;y++){BlockPos q=p.above(y);BlockState current=level.getBlockState(q);if(started&&expected.containsKey(q)&&current.is(expected.get(q).getBlock()))continue;if(!current.isAir()&&!current.is(Blocks.GRASS))return false;}
+            }
+            if(started)for(var part:expected.entrySet())if(level.getBlockState(part.getKey()).is(part.getValue().getBlock()))own.add(key(part.getKey()));
+            if(!macro(type)&&!liveClearance(level,base,type==TREE?5:3,own))return false;
+        }
+        for(Placement part:parts){BlockPos p=part.pos();if(!inside(d,p)||p.getY()<=base.getY()||p.getY()>=level.getMaxBuildHeight())return false;
             BlockState current=level.getBlockState(p);if(started&&current.is(part.state().getBlock()))continue;
-            if(!current.isAir()&&!(type>=TREE&&current.is(Blocks.GRASS)))return false;
+            if(!level.getFluidState(p).isEmpty()||level.getBlockEntity(p)!=null||!current.isAir()&&!(type>=TREE&&current.is(Blocks.GRASS)))return false;
         }return true;
     }
     private Block flowerFor(int x,int z){return switch(Math.floorMod(x*19+z*73,5)){case 0->Blocks.POPPY;case 1->Blocks.DANDELION;case 2->Blocks.AZURE_BLUET;case 3->Blocks.OXEYE_DAISY;default->Blocks.CORNFLOWER;};}
+    private boolean workBase(ServerLevel level,CompoundTag task){
+        BlockPos base=pos(task);if(level.getBlockState(base).is(Blocks.GRASS_BLOCK))return true;
+        if(!task.getBoolean("started")||task.getInt("type")<TREE||!level.getBlockState(base).is(Blocks.DIRT))return false;
+        // Vanilla grass may decay beneath our own support while a large build is still in progress.
+        for(Placement p:blueprint(level,base,task.getInt("type")))if(p.pos().equals(base.above())&&level.getBlockState(p.pos()).is(p.state().getBlock()))return true;
+        return false;
+    }
     private boolean taskSatisfied(ServerLevel level,ConstructorData d,CompoundTag task){
-        BlockPos base=pos(task);if(!level.hasChunkAt(base)||!level.getBlockState(base).is(Blocks.GRASS_BLOCK))return false;
-        for(Placement p:blueprint(level,base,task.getInt("type")))if(!level.getBlockState(p.pos()).is(p.state().getBlock()))return false;return true;
+        BlockPos base=pos(task);if(!level.hasChunkAt(base)||!workBase(level,task))return false;
+        for(Placement p:blueprint(level,base,task.getInt("type")))if(!level.getBlockState(p.pos()).is(p.state().getBlock())||p.state().is(Blocks.WATER)&&!level.getFluidState(p.pos()).isSource())return false;return true;
     }
     private void complete(ConstructorData d,boolean success){if(success)d.completedJobs++;else d.skipped++;d.taskCursor++;pending.clear();route.clear();routeIndex=0;walking=false;placementDelay=0;d.setDirty();}
     private void defer(ConstructorData d,CompoundTag task,String reason){CompoundTag t=task.copy();t.putString("reason",reason);d.retryTasks.add(t);d.setDirty();}
@@ -176,15 +252,15 @@ public final class ConstructorBuilder {
         if(!pending.isEmpty()){
             if(placementDelay>0){placementDelay--;return;}
             CompoundTag task=d.task(d.taskCursor);BlockPos base=pos(task);Placement part=pending.removeFirst();BlockState current=level.getBlockState(part.pos());
-            if(!gardenTask(task.getInt("type"))||!inside(d,part.pos())||part.pos().getY()<=base.getY()||!level.getBlockState(base).is(Blocks.GRASS_BLOCK))jobFailures++;
-            else if(current.is(part.state().getBlock())){} // resume a partially built tree/lamp without replacing its blocks
-            else if((current.isAir()||task.getInt("type")>=TREE&&current.is(Blocks.GRASS))&&level.getFluidState(part.pos()).isEmpty()&&level.getBlockEntity(part.pos())==null){
+            if(!gardenTask(task.getInt("type"))||!inside(d,part.pos())||part.pos().getY()<=base.getY()||!workBase(level,task))jobFailures++;
+            else if(current.is(part.state().getBlock())&&(!part.state().is(Blocks.WATER)||current.getFluidState().isSource())){} // resume a partially built tree/lamp without replacing its blocks
+            else if((current.isAir()||task.getInt("type")>=TREE&&current.is(Blocks.GRASS)||part.state().is(Blocks.WATER)&&current.is(Blocks.WATER))&&(level.getFluidState(part.pos()).isEmpty()||part.state().is(Blocks.WATER)&&current.is(Blocks.WATER))&&level.getBlockEntity(part.pos())==null){
                 if(level.setBlock(part.pos(),part.state(),3)){d.placed++;animate(server,level);}else jobFailures++;
             }else jobFailures++;
             placementDelay=WORK_DELAY_TICKS;d.setDirty();
             if(pending.isEmpty()){
                 if(jobFailures>0){defer(d,task,"el sitio cambió durante la colocación");complete(d,false);}
-                else{if(task.getInt("type")==TREE||task.getInt("type")==LAMP){CompoundTag m=task.copy();m.putString("dimension",d.dimension);d.memory.add(m);}complete(d,true);}
+                else{if(task.getInt("type")==TREE||task.getInt("type")==LAMP||macro(task.getInt("type"))){CompoundTag m=task.copy();m.putString("dimension",d.dimension);d.memory.add(m);}complete(d,true);}
             }return;
         }
         if(walking){
@@ -219,15 +295,16 @@ public final class ConstructorBuilder {
         }return true;
     }
     private BlockPos approach(ServerLevel level,CompoundTag task,Search search){
-        BlockPos target=pos(task),best=null;int cost=Integer.MAX_VALUE,type=task.getInt("type");
+        BlockPos target=pos(task),best=null;int cost=Integer.MAX_VALUE,type=task.getInt("type");Set<Long> occupied=new HashSet<>();if(macro(type))for(Placement part:blueprint(level,target,type))occupied.add(key(part.pos()));
         for(int dx=-4;dx<=4;dx++)for(int dz=-4;dz<=4;dz++){
+            if(macro(type)&&occupied.contains(key(target.getX()+dx,target.getZ()+dz)))continue;
             if(dx*dx+dz*dz>20||type==TREE&&Math.max(Math.abs(dx),Math.abs(dz))<3||type==LAMP&&Math.max(Math.abs(dx),Math.abs(dz))<2)continue;
-            BlockPos p=search.nodes().get(key(target.getX()+dx,target.getZ()+dz));if(p==null||Math.abs(p.getY()-target.getY())>2||!visibleWork(level,p,target))continue;
+            BlockPos p=search.nodes().get(key(target.getX()+dx,target.getZ()+dz));if(p==null||Math.abs(p.getY()-target.getY())>2||!(macro(type)&&task.getBoolean("started"))&&!visibleWork(level,p,target))continue;
             int c=search.costs().get(key(p));if(c<cost){cost=c;best=p;}
         }return best;
     }
     private boolean beginNearestTask(ServerLevel level,ConstructorData d){
-        for(int i=d.taskCursor;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(!gardenTask(t.getInt("type"))||!level.getBlockState(pos(t)).is(Blocks.GRASS_BLOCK)||taskSatisfied(level,d,t)){
+        for(int i=d.taskCursor;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(!gardenTask(t.getInt("type"))||!workBase(level,t)||taskSatisfied(level,d,t)){
             var old=d.tasks.get(d.taskCursor);d.tasks.set(d.taskCursor,d.tasks.get(i));d.tasks.set(i,old);complete(d,gardenTask(t.getInt("type"))&&taskSatisfied(level,d,t));return false;
         }}
         BlockPos current=standingGround(level,(int)Math.floor(visualX),(int)Math.floor(visualZ),(int)Math.floor(visualY-.01));if(current==null){recoverPosition(level,d);return false;}

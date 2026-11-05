@@ -1,5 +1,5 @@
 plugins { id 'net.minecraftforge.gradle' version '6.0.54' }
-version='0.5.0-jardinero-test20'
+version='0.5.1-jardinero-test21'
 group='net.barttolo'
 base { archivesName='Barttolo-Bots-Forge-1.20.1' }
 java.toolchain.languageVersion=JavaLanguageVersion.of(17)

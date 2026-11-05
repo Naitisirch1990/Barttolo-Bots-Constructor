@@ -7,7 +7,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 /** Gardening assignments. Old terrain/loot plans are never executable in this schema. */
 public final class ConstructorData extends SavedData {
-    public static final int SCHEMA=1;
+    public static final int SCHEMA=2;
     public String dimension="minecraft:overworld",lastReport="";
     public int centerX,centerY,centerZ,width=64,cursor,taskCursor,placed,completedJobs,skipped;
     public boolean configured,active,scanning=true,finished,auditOnly,reviewPending;

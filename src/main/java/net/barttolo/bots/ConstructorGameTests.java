@@ -28,6 +28,39 @@ public class ConstructorGameTests {
     static Map<BlockPos,BlockState> groundSnapshot(ServerLevel level,BlockPos c,int radius){Map<BlockPos,BlockState> states=new HashMap<>();for(int x=-radius;x<radius;x++)for(int z=-radius;z<radius;z++)for(int y=-4;y<=0;y++){BlockPos p=c.offset(x,y,z);states.put(p,level.getBlockState(p));}return states;}
 
     @GameTest(template="empty",timeoutTicks=200)
+    public static void smallPlotsHaveTwelveBlockLightsTreesAndSmallBuilds(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos c=center(h,1536);lawn(level,c,31);
+        for(int width:new int[]{32,40,48}){ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,width);scan(b,level,d);int lights=0,trees=0,builds=0;List<BlockPos> lampPositions=new ArrayList<>(),treePositions=new ArrayList<>();
+            for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);BlockPos p=new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z"));if(t.getInt("type")==ConstructorBuilder.LAMP){lights++;lampPositions.add(p);}else if(t.getInt("type")==ConstructorBuilder.TREE){trees++;treePositions.add(p);}else if(t.getInt("type")>=ConstructorBuilder.FARM)builds++;}
+            h.assertTrue(lights>0&&trees>0&&builds>0,"small clear plot must include lighting, trees and restored constructions: width="+width+", counts="+lights+","+trees+","+builds);
+            for(var positions:List.of(lampPositions,treePositions))for(int i=0;i<positions.size();i++)for(int j=i+1;j<positions.size();j++){
+                BlockPos a=positions.get(i),z=positions.get(j);h.assertTrue(Math.floorMod(a.getX()-z.getX(),12)==0&&Math.floorMod(a.getZ()-z.getZ(),12)==0,"tree/light candidates use twelve-block grids");
+            }
+        }h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void restoredRecipesAreSupportedAndStayAboveGrass(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=center(h,1792);ConstructorBuilder b=new ConstructorBuilder();
+        for(int type:new int[]{ConstructorBuilder.FARM,ConstructorBuilder.PLAZA,ConstructorBuilder.BENCH,ConstructorBuilder.PERGOLA,ConstructorBuilder.WELL,ConstructorBuilder.STALL,ConstructorBuilder.PICNIC,ConstructorBuilder.POND})for(int variant=0;variant<3;variant++){
+            BlockPos c=origin.east(variant);lawn(level,c,6);
+            @SuppressWarnings("unchecked") List<Object> parts=(List<Object>)call(b,"structureBlueprint",new Class[]{BlockPos.class,int.class},c,type);
+            for(Object part:parts){Method pm=part.getClass().getDeclaredMethod("pos"),sm=part.getClass().getDeclaredMethod("state");pm.setAccessible(true);sm.setAccessible(true);BlockPos p=(BlockPos)pm.invoke(part);BlockState state=(BlockState)sm.invoke(part);h.assertTrue(p.getY()>c.getY()&&Math.abs(p.getX()-c.getX())<=4&&Math.abs(p.getZ()-c.getZ())<=4,"recipes must stay above existing ground and within their footprint");level.setBlockAndUpdate(p,state);}
+            for(Object part:parts){Method pm=part.getClass().getDeclaredMethod("pos"),sm=part.getClass().getDeclaredMethod("state");pm.setAccessible(true);sm.setAccessible(true);BlockPos p=(BlockPos)pm.invoke(part);BlockState state=(BlockState)sm.invoke(part);h.assertTrue(level.getBlockState(p).is(state.getBlock())&&state.canSurvive(level,p),"unsupported restored recipe part, type="+type+", block="+state+", pos="+p);}
+            for(int x=-4;x<=4;x++)for(int z=-4;z<=4;z++)h.assertTrue(level.getBlockState(c.offset(x,0,z)).is(Blocks.GRASS_BLOCK),"restored recipes must not replace the original ground");
+        }h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void partialRaisedFarmResumesAfterGrassNaturallyBecomesDirt(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos c=center(h,2048);lawn(level,c,22);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.addTask(ConstructorBuilder.FARM,c.getX(),c.getY(),c.getZ());worker(b,c.east(4));
+        call(b,"prepareTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        for(int tick=0;tick<2000&&level.getBlockState(c.above()).isAir();tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        Blocks.GRASS_BLOCK.defaultBlockState().randomTick(level,c,level.random);
+        h.assertTrue(level.getBlockState(c).is(Blocks.DIRT),"exercise vanilla grass decay below our own raised support");
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));ConstructorBuilder resumed=new ConstructorBuilder();worker(resumed,c.east(4));
+        for(int tick=0;tick<10000&&!restored.finished&&!restored.reviewPending;tick++)call(resumed,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,restored);
+        h.assertTrue(restored.finished&&restored.retryTasks.isEmpty()&&level.getBlockState(c.above(2)).is(Blocks.WATER),"resume and finish the raised crop bed without mistaking its support for a new obstruction");h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void grassBandsTreesAndExactLampGrid(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos c=center(h,256);lawn(level,c,38);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,64);
         for(int z=-25;z<=25;z++)for(int x=-11;x<=-9;x++)level.setBlockAndUpdate(c.offset(x,0,z),Blocks.STONE.defaultBlockState());
@@ -35,12 +68,13 @@ public class ConstructorGameTests {
         level.setBlockAndUpdate(c.offset(14,0,4),Blocks.FARMLAND.defaultBlockState());level.setBlockAndUpdate(c.offset(15,0,4),Blocks.WATER.defaultBlockState());
         var before=groundSnapshot(level,c,32);scan(b,level,d);
         h.assertTrue(d.placed==0&&before.entrySet().stream().allMatch(e->level.getBlockState(e.getKey()).equals(e.getValue())),"inspection must not edit the ground");
-        int grasses=0,flowers=0,trees=0,lamps=0;
+        int grasses=0,flowers=0,trees=0,lamps=0;Integer phaseX=null,phaseZ=null;
         for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int type=t.getInt("type");BlockPos p=new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z"));int distance=nearestObstacle(b,level,p);
             h.assertTrue(ConstructorBuilder.gardenTask(type)&&level.getBlockState(p).is(Blocks.GRASS_BLOCK),"all tasks must start on grass blocks");
             if(type==ConstructorBuilder.TUFT||type==ConstructorBuilder.FLOWER){h.assertTrue(distance==1||distance==3,"plant only the one- and three-block bands");if(type==ConstructorBuilder.TUFT)grasses++;else flowers++;}
             else if(type==ConstructorBuilder.TREE){trees++;h.assertTrue(distance>5,"trees need more than five blocks from other materials");}
-            else{lamps++;h.assertTrue(Math.floorMod(p.getX(),16)==0&&Math.floorMod(p.getZ(),16)==0&&distance>3,"lamps must keep their exact grid and grass clearance");}
+            else if(type==ConstructorBuilder.LAMP){lamps++;int px=Math.floorMod(p.getX(),12),pz=Math.floorMod(p.getZ(),12);if(phaseX==null){phaseX=px;phaseZ=pz;}h.assertTrue(px==phaseX&&pz==phaseZ&&distance>3,"lamps must keep their translated twelve-block grid and grass clearance");}
+            else h.assertTrue(type>=ConstructorBuilder.FARM&&type<=ConstructorBuilder.POND,"allow the restored small catalog");
         }
         h.assertTrue(grasses>0&&flowers>0&&trees>1&&lamps>1,"produce all requested gardening categories: "+grasses+","+flowers+","+trees+","+lamps);h.succeed();
     }

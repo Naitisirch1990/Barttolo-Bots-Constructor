@@ -1,25 +1,10 @@
-# Barttolo Constructor — Jardinero 0.5.0 / test20
+# Barttolo Jardinero 0.5.1 / test21
 
-Rediseño de jardinería para acompañar BWE. El constructor ya no reforma terrenos ni caminos, no crea vallados ni estructuras del catálogo anterior y no convierte cofres a Lootr.
+- Farolas cada 12 bloques. La inspección prueba las 144 alineaciones posibles y elige la cuadrícula de 12 con más sitios válidos, también en parcelas pequeñas. Omite posiciones junto a caminos o construcciones.
+- Árboles en una cuadrícula de aproximadamente 12 bloques, sin el filtro aleatorio que podía dejar áreas pequeñas sin árboles. Conserva la separación de edificios/caminos y deja espacio para las copas y las farolas propias.
+- Recupera cultivos, plazoletas pequeñas, bancos/jardineras, pérgolas, pozos decorativos, puestos, merenderos y estanques. Solo propone los que caben en césped plano y libre. Reserva su espacio antes de plantar y ajusta las farolas para evitar colisiones.
+- Cultivos y construcciones usan plataformas elevadas con acceso, sin excavar ni reemplazar el suelo existente. El agua se coloca después de cerrar el recipiente y las plantas acuáticas/cultivos al final.
+- Mantiene las franjas de pasto y flores a 1 y 3 bloques y el máximo de 256×256. No rellena barrancos ni pozos, no repara caminos, no añade vallados perimetrales y no toca cofres existentes.
+- La tierra que aparece naturalmente bajo una base propia no bloquea la continuación de una construcción iniciada. No permite usar tierra desnuda para una construcción nueva.
 
-## Uso
-
-`/constructor crear 256` asigna un cuadrado de 256×256 centrado en el punto de creación y comienza la inspección quieto, sin colocar bloques. Se aceptan lados entre 32 y 256; sin número usa 64.
-
-`/constructor iniciar` ejecuta la jardinería después de terminar la inspección. Se mantienen pausar, estado, auditar y cancelar.
-
-## Reglas
-
-- Solo planta sobre bloques existentes `minecraft:grass_block`. Pasto significa vegetación baja encima del césped; no sustituye tierra, piedra, madera, cultivos ni otros materiales.
-- Pasto y flores variados en franjas a 1 y 3 bloques de columnas de otros materiales. Si la posición está ocupada o su base no es césped, la omite.
-- Varios árboles pequeños completos (roble, abedul o abeto) en lugares a más de 5 bloques de otros materiales. Reserva espacio para sus copas, conserva una separación de 8 bloques entre candidatos y evita las farolas. Omite suelo inclinado o sin espacio; no lo nivela.
-- Farolas simétricas en una cuadrícula fija X/Z múltiplos de 16. Exige 3 bloques de separación de columnas no cubiertas por césped, incluidos caminos de piedra, agua y edificios. Los puntos ocupados se omiten; no se desplazan fuera de la cuadrícula.
-- El escaneo lee un margen exterior de 6 bloques para respetar construcciones junto al borde; todas las colocaciones quedan dentro del área asignada.
-- El terreno y los cofres permanecen intactos. No tapa pozos, rellena barrancos, limpia obstáculos ni retira vallas anteriores.
-- Trabaja por sectores y puede caminar sobre pavimento y cultivos sin cambiarlos. Conserva la velocidad de test19.
-
-Las asignaciones anteriores se pausan al actualizar y sus tareas viejas se descartan antes de trabajar. Usar crear de nuevo para elegir el centro y el tamaño del nuevo jardín. Lo construido anteriormente no se deshace.
-
-## Validación
-
-Pruebas en servidor Forge: franjas 1/3, árboles a más de 5, cuadrícula 16 y protección de caminos, inspección sin cambios, colocación real de árboles y farolas, conservación de suelo/pozos/agua/cultivos/cofres, navegación, migración y comandos hasta 256.
+Reemplazar el JAR anterior y reiniciar. Desde el centro deseado: `/constructor crear 32` (o 40, 48, 64, 128, 256) y `/constructor iniciar`. Las construcciones ya colocadas permanecen. Las asignaciones anteriores se pausan y se vuelven a inspeccionar al actualizar.
