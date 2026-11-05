@@ -20,6 +20,68 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void fourBedrockCornersDefinePersistentRectangle(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1792,level.getMaxBuildHeight()-28,origin.getZ()+1792);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;d.active=true;d.markerSearch=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            level.setBlockAndUpdate(c.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());for(int y=1;y<=4;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        for(int x:new int[]{-6,6})for(int z:new int[]{-4,4})level.setBlockAndUpdate(c.offset(x,1,z),Blocks.BEDROCK.defaultBlockState());
+        for(int tick=0;tick<40&&d.markerSearch&&d.active;tick++)call(b,"scanMarkers",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.bounded&&!d.markerSearch&&d.spanX()==13&&d.spanZ()==9,"use the exact four-corner rectangle, not the original square");
+        h.assertTrue(d.placed==0&&d.tasks.isEmpty(),"marker discovery is read-only");
+        ConstructorData saved=ConstructorData.load(d.save(new CompoundTag()));
+        h.assertTrue(saved.bounded&&saved.contains(c.getX()+6,c.getZ()+4)&&!saved.contains(c.getX()+7,c.getZ()),"exact limits must survive restart");
+        Method insideLoot=ConstructorLootr.class.getDeclaredMethod("inside",ConstructorData.class,BlockPos.class);insideLoot.setAccessible(true);
+        h.assertTrue(!(boolean)insideLoot.invoke(null,saved,c.east(7)),"chest conversion must obey the same rectangle");
+        level.setBlockAndUpdate(c.offset(6,1,4),Blocks.AIR.defaultBlockState());
+        d.bounded=false;d.markerSearch=true;d.cornerMarkers.clear();d.cursor=0;d.active=true;
+        for(int tick=0;tick<40&&d.active;tick++)call(b,"scanMarkers",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(!d.active&&d.markerSearch&&d.placed==0,"three corners must pause before any world edit");
+        for(int x:new int[]{-6,6})for(int z:new int[]{-4,4})level.setBlockAndUpdate(c.offset(x,1,z),Blocks.AIR.defaultBlockState());
+        for(int[] q:new int[][]{{-6,-4},{6,-4},{-6,4},{5,4}})level.setBlockAndUpdate(c.offset(q[0],1,q[1]),Blocks.BEDROCK.defaultBlockState());
+        d.cornerMarkers.clear();d.cursor=0;d.active=true;
+        for(int tick=0;tick<40&&d.active;tick++)call(b,"scanMarkers",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(!d.active&&d.markerSearch&&d.placed==0,"four unaligned markers must also be rejected");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void markedGroundFinishesBeforeFenceAndKeepsOutsideUntouched(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+2048,level.getMaxBuildHeight()-28,origin.getZ()+2048);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;d.active=true;d.staged=true;d.bounded=true;d.boundMinX=c.getX()-8;d.boundMaxX=c.getX()+8;d.boundMinZ=c.getZ()-6;d.boundMaxZ=c.getZ()+6;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            int floor=x>=-4&&x<=-2&&z>=-3&&z<=-1?c.getY()-3:c.getY();
+            for(int y=c.getY()-4;y<=c.getY()+5;y++)level.setBlockAndUpdate(new BlockPos(c.getX()+x,y,c.getZ()+z),y<floor?Blocks.STONE.defaultBlockState():y==floor?Blocks.GRASS_BLOCK.defaultBlockState():Blocks.AIR.defaultBlockState());
+        }
+        BlockPos ownBase=c.offset(-3,-3,-2),ownFence=ownBase.above();level.setBlockAndUpdate(ownFence,Blocks.OAK_FENCE.defaultBlockState());
+        CompoundTag memory=task(15,ownBase);memory.putString("dimension",d.dimension);d.memory.add(memory);
+        BlockPos playerFence=c.offset(5,1,4);level.setBlockAndUpdate(playerFence,Blocks.OAK_FENCE.defaultBlockState());
+        BlockPos marker=c.offset(-8,1,-6);level.setBlockAndUpdate(marker,Blocks.BEDROCK.defaultBlockState());
+        field(b,"visualX",c.getX()+.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        while(d.scanning)call(b,"scanBatch",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(java.util.stream.IntStream.range(0,d.tasks.size()).anyMatch(i->d.task(i).getInt("type")==26),"audit removal of the remembered fence before filling");
+        h.assertTrue(java.util.stream.IntStream.range(0,d.tasks.size()).noneMatch(i->d.task(i).getInt("type")==15),"never schedule a new fence in the terrain stage");
+        for(int tick=0;tick<12000&&d.workStage==0&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.workStage==1&&d.scanning&&!d.reviewPending,"only advance to road audit after terrain is complete; pending="+d.retryTasks.size());
+        for(int x=-4;x<=-2;x++)for(int z=-3;z<=-1;z++){
+            h.assertTrue(level.getBlockState(c.offset(x,0,z)).is(Blocks.GRASS_BLOCK),"fill the whole marked depression to village height");
+            for(int y=-2;y<0;y++)h.assertTrue(level.getBlockState(c.offset(x,y,z)).is(Blocks.DIRT),"do not leave fences or air buried inside the fill");
+        }
+        h.assertTrue(d.memory.isEmpty()&&level.getBlockState(playerFence).is(Blocks.OAK_FENCE),"remove ownership of the old fence, preserve unowned fences");
+        h.assertTrue(level.getBlockState(marker).is(Blocks.BEDROCK),"preserve the bedrock marker");
+        // Every later fence is freshly planned on the final grade and within the exact limits.
+        d.workStage=3;d.cursor=0;d.tasks.clear();d.doors.clear();call(b,"loadPlan",new Class[]{ConstructorData.class},d);
+        while(d.scanning)call(b,"scanBatch",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.tasks.size()>0,"plan the marked perimeter at the final stage even without automatic village bounds");
+        for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);h.assertTrue(t.getInt("type")==15&&t.getInt("y")==c.getY()&&d.contains(t.getInt("x"),t.getInt("z")),"fence must use final ground, inside rectangle");}
+        ConstructorBuilder guard=new ConstructorBuilder();ConstructorData small=ConstructorData.load(d.save(new CompoundTag()));small.staged=false;small.tasks.clear();small.taskCursor=0;
+        BlockPos outside=c.east(9);CompoundTag fake=task(10,outside);fake.putInt("direction",c.getY()+1);small.tasks.add(fake);
+        call(guard,"queueEarthColumn",new Class[]{ServerLevel.class,ConstructorData.class,BlockPos.class,int.class,boolean.class},level,small,outside,c.getY()+1,false);
+        call(guard,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,small);
+        h.assertTrue(level.getBlockState(outside.above()).isAir()&&small.failedPlacements>0,"final placement guard must reject even a stale outside task");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void wetCliffAndFoliageAreFilledFromSolidBottom(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1280,level.getMaxBuildHeight()-32,origin.getZ()+1280);
         ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
@@ -82,7 +144,7 @@ public class ConstructorGameTests {
         double before=(double)field(b,"visualX");int placed=d.placed;
         while(d.scanning)call(b,"scanBatch",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
         h.assertTrue((double)field(b,"visualX")==before&&d.placed==placed,"complete the audit without moving or editing blocks");
-        h.assertTrue(d.auditCarry.isEmpty()&&d.tasks.size()>0,"merge unfinished jobs into the fresh audit");
+        h.assertTrue(!d.scanning&&!d.auditCarry.isEmpty(),"retain future decoration jobs until their own stage audit");
         h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)

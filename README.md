@@ -1,3 +1,15 @@
+## 0.4.5 / constructor-test18 — cuatro esquinas y orden de trabajo
+
+1. Colocar exactamente cuatro bloques de bedrock, visibles en superficie, en las esquinas de un rectángulo alineado con X/Z. Pueden estar a distintas alturas. Todos deben quedar dentro del cuadrado de búsqueda de `crear 128`; ejecutar crear desde dentro del rectángulo.
+2. `/constructor crear 128` y `/constructor iniciar`. Primero busca los marcadores sin mover ni cambiar bloques. Si hay 1–3, más de 4 o no forman un rectángulo, pausa y explica qué corregir. Con cero conserva el modo de parcela cuadrada.
+3. Con cuatro esquinas válidas guarda los límites exactos (incluidas las esquinas) y los aplica al escaneo, movimiento, colocación de bloques y conversión Lootr. No elimina los marcadores. No cambia el exterior aunque un plan anterior contenga trabajos allí.
+4. Orden obligatorio: terreno y retirada de vallas propias → caminos → iluminación/construcciones → vallado. Trabaja por sectores dentro de cada etapa. Si quedan pendientes en una etapa, no comienza la siguiente. Revisa el suelo actualizado antes de planificar cada etapa.
+5. Dentro del rectángulo rellena depresiones hasta el nivel de las entradas de la aldea (mediana), o hasta el suelo de crear si no hay puertas. No usa una montaña exterior como referencia ni excava elevaciones. Límite de relleno 12 bloques; respeta edificios, troncos, cultivos y construcciones recordadas.
+6. Retira las vallas que consten en la memoria del constructor antes del relleno, incluidas las que hayan quedado parcialmente enterradas. Reemplaza por tierra si están bajo el nivel final. Preserva vallas ajenas/no registradas. Planifica el nuevo perímetro sobre el suelo final de las esquinas, con accesos libres.
+7. Reconoce senderos de piedra estrechos con bordes de césped a la misma altura para situar iluminación, conservando su pavimento.
+
+Velocidad y distancia de farolas sin cambios. Las pruebas incluyen rectángulo no cuadrado, persistencia y marcadores inválidos, límites Lootr, retirada de vallas propias, protección de vallas ajenas, relleno sólido y orden de etapas, más las regresiones existentes.
+
 ## 0.4.4 / constructor-test17
 
 - `/constructor iniciar` realiza una nueva auditoría completa y quieta de la parcela antes de caminar. Conserva los trabajos pendientes y su estado si el servidor se reinicia durante el análisis. Si ya está trabajando, no interrumpe el recorrido.

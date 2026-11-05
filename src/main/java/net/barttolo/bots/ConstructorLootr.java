@@ -24,14 +24,14 @@ public final class ConstructorLootr {
     private static final String[] FALLBACKS={"village_plains_house","village_savanna_house","village_taiga_house","village_desert_house","village_snowy_house","village_toolsmith","village_weaponsmith","village_armorer"};
     private ConstructorLootr() {}
     public static boolean available(){return BuiltInRegistries.BLOCK.containsKey(new ResourceLocation("lootr","lootr_chest"));}
-    private static boolean inside(ConstructorData d,BlockPos p){int x=d.centerX-d.width/2,z=d.centerZ-d.width/2;return p.getX()>=x&&p.getX()<x+d.width&&p.getZ()>=z&&p.getZ()<z+d.width;}
+    private static boolean inside(ConstructorData d,BlockPos p){return d.contains(p.getX(),p.getZ());}
     /** One chunk each tick, all heights; persist cursor only after the whole chunk has been handled. */
     public static void tick(ServerLevel level,ConstructorData d){
         if(d.chestsDone||d.auditOnly||d.chestsPaused)return;
         if(!available()){d.chestsDone=true;d.setDirty();return;}
-        int minX=Math.floorDiv(d.centerX-d.width/2,16),minZ=Math.floorDiv(d.centerZ-d.width/2,16);
-        int nx=Math.floorDiv(d.centerX-d.width/2+d.width-1,16)-minX+1;
-        int nz=Math.floorDiv(d.centerZ-d.width/2+d.width-1,16)-minZ+1;
+        int minX=Math.floorDiv(d.minX(),16),minZ=Math.floorDiv(d.minZ(),16);
+        int nx=Math.floorDiv(d.minX()+d.spanX()-1,16)-minX+1;
+        int nz=Math.floorDiv(d.minZ()+d.spanZ()-1,16)-minZ+1;
         if(d.chestCursor>=nx*nz){d.chestsDone=true;d.setDirty();return;}
         int cx=minX+d.chestCursor%nx,cz=minZ+d.chestCursor/nx;
         var chunk=level.getChunk(cx,cz);

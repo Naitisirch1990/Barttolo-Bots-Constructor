@@ -8,11 +8,14 @@ public final class SurfaceBasinPlan {
     private record Node(Cell cell,int level){}
     public record Plan(Map<Cell,Integer> targets,int basins,int oversized,int tooDeep){}
     public static Plan plan(Map<Cell,Integer> ground,Set<Cell> protectedCells,int minX,int minZ,int width){
+        return plan(ground,protectedCells,minX,minZ,width,width);
+    }
+    public static Plan plan(Map<Cell,Integer> ground,Set<Cell> protectedCells,int minX,int minZ,int width,int spanZ){
         Comparator<Node> order=Comparator.comparingInt(Node::level).thenComparingInt(n->n.cell.x).thenComparingInt(n->n.cell.z);
         PriorityQueue<Node> open=new PriorityQueue<>(order);Set<Cell> seen=new HashSet<>();Map<Cell,Integer> raised=new HashMap<>();
         int[][] dirs={{1,0},{-1,0},{0,1},{0,-1}};
         for(var e:ground.entrySet()){
-            Cell c=e.getKey();boolean drain=c.x==minX||c.z==minZ||c.x==minX+width-1||c.z==minZ+width-1||protectedCells.contains(c);
+            Cell c=e.getKey();boolean drain=c.x==minX||c.z==minZ||c.x==minX+width-1||c.z==minZ+spanZ-1||protectedCells.contains(c);
             for(int[] dir:dirs)if(!ground.containsKey(c.next(dir[0],dir[1])))drain=true;
             if(drain&&seen.add(c))open.add(new Node(c,e.getValue()));
         }

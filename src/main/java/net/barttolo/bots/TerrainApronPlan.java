@@ -7,6 +7,9 @@ public final class TerrainApronPlan {
     public record Cell(int x,int z){Cell step(int dx,int dz,int n){return new Cell(x+dx*n,z+dz*n);}}
     public record Plan(Map<Cell,Integer> targets,int edges,int tooDeep,int blocked,int clipped){}
     public static Plan plan(Map<Cell,Integer> heights,Set<Cell> anchors,Set<Cell> blocked,int minX,int minZ,int width){
+        return plan(heights,anchors,blocked,minX,minZ,width,width);
+    }
+    public static Plan plan(Map<Cell,Integer> heights,Set<Cell> anchors,Set<Cell> blocked,int minX,int minZ,int width,int depth){
         Map<Cell,Integer> targets=new HashMap<>();Set<Cell> obstructions=new HashSet<>(),outside=new HashSet<>();int edges=0,deep=0;
         List<Cell> ordered=new ArrayList<>(anchors);ordered.sort(Comparator.comparingInt(Cell::x).thenComparingInt(Cell::z));
         for(Cell high:ordered){Integer upper=heights.get(high);if(upper==null||blocked.contains(high))continue;
@@ -18,7 +21,7 @@ public final class TerrainApronPlan {
                 int drop=upper-low;edges++;if(drop>12){deep++;continue;}
                 for(int step=1;step<=drop*2;step++){
                     Cell c=high.step(dx,dz,step);int target=upper-(step+1)/2;
-                    if(c.x<minX||c.x>=minX+width||c.z<minZ||c.z>=minZ+width){outside.add(c);break;}
+                    if(c.x<minX||c.x>=minX+width||c.z<minZ||c.z>=minZ+depth){outside.add(c);break;}
                     Integer ground=heights.get(c);
                     if(ground==null||blocked.contains(c)){obstructions.add(c);break;}
                     if(ground>=target)break; // Land on existing ground; never cut into a hillside.
