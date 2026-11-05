@@ -207,13 +207,16 @@ public final class ConstructorBuilder {
             announce(level.getServer(),level,"El rectángulo debe contener el punto de crear y medir al menos 5×5. No cambié bloques; ajustá los marcadores y usá iniciar.");return;
         }
         d.bounded=true;d.boundMinX=left;d.boundMaxX=right;d.boundMinZ=north;d.boundMaxZ=south;
-        d.centerX=left+(right-left)/2;d.centerZ=north+(south-north)/2;d.markerSearch=false;d.cursor=0;d.setDirty();
+        d.centerX=left+(right-left)/2;d.centerZ=north+(south-north)/2;d.markerSearch=false;d.cursor=0;
+        if(visualInitialized&&!d.contains((int)Math.floor(visualX),(int)Math.floor(visualZ))){BlockPos safe=findSafeStart(level,d);
+            if(safe!=null){visualX=safe.getX()+.5;visualY=footHeight(level,safe);visualZ=safe.getZ()+.5;movementPacketPending=true;}
+        }d.setDirty();
         announce(level.getServer(),level,"Cuatro esquinas aceptadas: "+d.areaLabel()+", X "+left+".."+right+", Z "+north+".."+south+". Ningún trabajo saldrá de estos límites. Primero terreno, luego caminos, decoración y vallado al final.");
     }
     private int stageOf(int type){return switch(type){case REMOVE_FENCE,CLEAR,FILL,RAMP,RETAIN,TERRACE,PATCH,GRASS->0;case PATH->1;case FENCE->3;default->2;};}
     private String stageName(int stage){return switch(stage){case 0->"terreno";case 1->"caminos";case 2->"iluminación y construcciones";default->"vallado final";};}
     private void nextStage(ServerLevel level,ConstructorData d){
-        d.workStage++;d.tasks.clear();d.taskCursor=0;d.cursor=0;d.scanning=true;d.doors.clear();d.roofs.clear();planned.clear();
+        d.workStage++;d.roadsFound=0;d.tasks.clear();d.taskCursor=0;d.cursor=0;d.scanning=true;d.doors.clear();d.roofs.clear();planned.clear();
         roadsideJobs.clear();pending.clear();route.clear();walking=false;sectorX=Integer.MIN_VALUE;d.retryPass=0;d.retryBaseline=d.placed;
         d.setDirty();announce(level.getServer(),level,"Terreno/etapa anterior completada. Audito "+stageName(d.workStage)+" sobre el suelo actualizado.");
     }
