@@ -46,6 +46,8 @@ public final class ConstructorBuilder {
     private final Set<String> planned=new HashSet<>();
     private final Set<Long> roadReserve=new HashSet<>();
     private Map<Long,BlockPos> reachable=Map.of();
+    private final Map<Long,CompoundTag> roadsideJobs=new HashMap<>();
+    private int sectorX=Integer.MIN_VALUE,sectorZ=Integer.MIN_VALUE;
     private final ArrayList<BlockPos> route=new ArrayList<>();
     private int routeIndex,placementDelay,taskPlacedStart,taskPlacementFailures;
     private boolean preparing,recoveringRoute;
@@ -58,7 +60,7 @@ public final class ConstructorBuilder {
         d.dimension=source.getLevel().dimension().location().toString();
         d.centerX=(int)Math.floor(source.getPosition().x);d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=(int)Math.floor(source.getPosition().z);
         d.chestCursor=0;d.chestsFound=0;d.chestsConverted=0;d.chestsFailed=0;d.chestsBoundary=0;d.chestsDone=false;d.chestsPaused=false;
-        roadReserve.clear();resetReport(d);d.roadCells.clear();d.doors.clear();d.roofs.clear();d.villageReport="pendiente";
+        d.auditCarry.clear();sectorX=Integer.MIN_VALUE;roadsideJobs.clear();roadReserve.clear();resetReport(d);d.roadCells.clear();d.doors.clear();d.roofs.clear();d.villageReport="pendiente";
         d.width=width;d.cursor=0;d.taskCursor=0;d.placed=0;d.skipped=0;d.holesFound=0;d.roadsFound=0;d.stoneFound=0;d.configured=true;d.active=false;d.scanning=true;d.finished=false;d.auditOnly=false;d.tasks.clear();
         ServerLevel level=source.getLevel();BlockPos start=findSafeStart(level,d);
         if(start==null){d.configured=false;source.sendFailure(Component.literal("No encontré suelo natural abierto en esta zona para ubicar al Constructor. Probá desde un punto de terreno despejado."));return 0;}
@@ -70,20 +72,35 @@ public final class ConstructorBuilder {
     public int start(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
         if(!d.configured){source.sendFailure(Component.literal("Primero asigná una zona con /constructor crear [32..128]."));return 0;}
-        if(d.reviewPending)resumePending(d,false);
-        if(d.finished){source.sendFailure(Component.literal("La zona ya está terminada. Asigná otra con /constructor crear."));return 0;}
+        if(d.active){source.sendSuccess(()->Component.literal("El Constructor ya está trabajando; conserva su recorrido por sectores."),false);return 1;}
+        // Each explicit start surveys the current world before travelling. Keep unfinished jobs across the survey.
+        if(!d.scanning)restartSurvey(d);
         d.active=true;d.auditOnly=false;d.chestsPaused=false;d.setDirty();announced=false;
         source.sendSuccess(()->Component.literal(d.scanning?"Constructor quieto: empieza a analizar la zona.":"Constructor retoma el trabajo desde el suelo."),false);return 1;
+    }
+    private void restartSurvey(ConstructorData d){
+        for(int i=d.taskCursor;i<d.tasks.size();i++)d.auditCarry.add(d.task(i).copy());
+        for(int i=0;i<d.retryTasks.size();i++)d.auditCarry.add(d.retryTasks.getCompound(i).copy());
+        roadReserve.clear();roadsideJobs.clear();planned.clear();resetReport(d);d.roadCells.clear();d.doors.clear();d.roofs.clear();
+        d.tasks.clear();d.cursor=0;d.taskCursor=0;d.scanning=true;d.finished=false;d.villageReport="pendiente";
+        d.holesFound=0;d.roadsFound=0;d.stoneFound=0;pending.clear();route.clear();walking=false;routeIndex=0;
+        recoveringRoute=false;preparing=false;recoveryAttempts=0;recoveryDelay=0;sectorX=Integer.MIN_VALUE;placementDelay=0;
+    }
+    private void finishSurvey(ServerLevel level,ConstructorData d){
+        // Prefer newly audited columns; carry jobs not rediscovered (for example a partially built structure).
+        Set<String> columns=new HashSet<>();
+        for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);columns.add(t.getInt("type")+":"+key(t.getInt("x"),t.getInt("z")));}
+        for(int i=0;i<d.auditCarry.size();i++){CompoundTag t=d.auditCarry.getCompound(i);String k=t.getInt("type")+":"+key(t.getInt("x"),t.getInt("z"));
+            if(!taskSatisfied(level,d,t)&&columns.add(k))d.tasks.add(t.copy());
+        }
+        d.auditCarry.clear();loadPlan(d);sectorX=Integer.MIN_VALUE;
     }
     /** Rebuilds a read-only task audit for the currently assigned square. */
     public int audit(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());
         if(!d.configured){source.sendFailure(Component.literal("Primero asigná la parcela con /constructor crear [32..128]."));return 0;}
         if(d.active){source.sendFailure(Component.literal("Pausá el Constructor antes de reiniciar la auditoría."));return 0;}
-        roadReserve.clear();resetReport(d);d.roadCells.clear();d.doors.clear();d.roofs.clear();d.villageReport="pendiente";
-        d.active=true;d.scanning=true;d.finished=false;d.auditOnly=true;d.cursor=0;d.taskCursor=0;d.tasks.clear();
-        d.placed=0;d.skipped=0;d.holesFound=0;d.roadsFound=0;d.stoneFound=0;d.setDirty();
-        recoveringRoute=false;recoveryDelay=0;recoveryAttempts=0;pending.clear();route.clear();planned.clear();planLoaded=true;walking=false;announced=false;
+        restartSurvey(d);d.active=true;d.auditOnly=true;d.setDirty();announced=false;
         source.sendSuccess(()->Component.literal("Auditoría iniciada: revisaré la superficie y las columnas vecinas en toda la parcela, sin cambiar bloques."),false);return 1;
     }
     public int pause(CommandSourceStack source){
@@ -108,7 +125,7 @@ public final class ConstructorBuilder {
         ConstructorData d=ConstructorData.get(server);if(!d.configured)return;
         if(!planLoaded)loadPlan(d);
         ServerLevel level=level(server,d.dimension);if(level==null)return;
-        ConstructorLootr.tick(level,d);
+        if(d.active&&!d.scanning)ConstructorLootr.tick(level,d);
         if(!visualInitialized){BlockPos start=findSafeStart(level,d);if(start==null)return;visualX=start.getX()+.5;visualY=start.getY()+1;visualZ=start.getZ()+.5;visualInitialized=true;}
         if(d.active){if(d.scanning)scanBatch(level,d);else workTick(server,level,d);}
         sync(server,level,d);
@@ -145,7 +162,7 @@ public final class ConstructorBuilder {
             }
         }
         d.setDirty();
-        if(d.cursor>=total){planSurfaceRepairs(level,d);planVillage(level,d);planLandscape(level,d);finalizeRoadPlan(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly){d.active=false;announce(level.getServer(),level,"Auditoría lista: "+d.holesFound+" huecos, "+d.roadsFound+" columnas de camino y "+d.stoneFound+" bloques de piedra aislados; "+d.tasks.size()+" acciones propuestas. No cambié bloques. Revisá /constructor estado y usa /constructor iniciar para ejecutar el plan.");}d.setDirty();}
+        if(d.cursor>=total){planSurfaceRepairs(level,d);planVillage(level,d);planLandscape(level,d);finalizeRoadPlan(level,d);finishSurvey(level,d);d.scanning=false;d.taskCursor=0;if(d.auditOnly){d.active=false;announce(level.getServer(),level,"Auditoría lista: "+d.holesFound+" huecos, "+d.roadsFound+" columnas de camino y "+d.stoneFound+" bloques de piedra aislados; "+d.tasks.size()+" acciones propuestas. No cambié bloques. Revisá /constructor estado y usa /constructor iniciar para ejecutar el plan.");}d.setDirty();}
     }
 
     private boolean entranceReserved(ConstructorData d,BlockPos p){
@@ -296,6 +313,7 @@ public final class ConstructorBuilder {
             BlockPos next=route.get(routeIndex);BlockPos checked=standingGround(level,next.getX(),next.getZ(),next.getY());
             if(!next.equals(checked)){walking=false;recoveringRoute=false;route.clear();routeIndex=0;return;}
             walkOneTick(level);
+            repairRoadWhileWalking(server,level,d);
             if(routeIndex>=route.size()){walking=false;if(recoveringRoute){recoveringRoute=false;route.clear();routeIndex=0;}else prepareTask(level,d);}
             return;
         }
@@ -319,26 +337,44 @@ public final class ConstructorBuilder {
         BlockPos current=standingGround(level,(int)Math.floor(visualX),(int)Math.floor(visualZ),(int)Math.floor(visualY-.01));
         if(current==null){recoverPosition(level,d);return false;}
         recoveryAttempts=0;recoveryDelay=0;
-        Map<Long,Long> parents=new HashMap<>();Map<Long,BlockPos> nodes=new HashMap<>();ArrayDeque<BlockPos> open=new ArrayDeque<>();
-        open.add(current);parents.put(key(current),key(current));nodes.put(key(current),current);
+        Map<Long,Long> parents=new HashMap<>();Map<Long,BlockPos> nodes=new HashMap<>();Map<Long,Integer> steps=new HashMap<>();ArrayDeque<BlockPos> open=new ArrayDeque<>();
+        open.add(current);parents.put(key(current),key(current));nodes.put(key(current),current);steps.put(key(current),0);
         while(!open.isEmpty()){
             BlockPos at=open.removeFirst();for(Direction dir:Direction.Plane.HORIZONTAL){BlockPos q=at.relative(dir);long k=key(q);
                 if(!inside(d,q)||parents.containsKey(k))continue;
                 BlockPos next=navigationStep(level,d,q.getX(),q.getZ(),at.getY());if(next==null)continue;
-                parents.put(k,key(at));nodes.put(k,next);open.addLast(next);
+                parents.put(k,key(at));nodes.put(k,next);steps.put(k,steps.get(key(at))+1);open.addLast(next);
             }
         }
         reachable=nodes;
-        int best=-1,bestPriority=Integer.MAX_VALUE;double bestDistance=Double.MAX_VALUE;BlockPos goal=null;
+        int best=-1,bestPriority=Integer.MAX_VALUE,bestSector=2;double bestDistance=Double.MAX_VALUE;BlockPos goal=null;
         for(int i=d.taskCursor;i<d.tasks.size();i++){
             CompoundTag task=d.task(i);BlockPos approach=approachFor(level,d,task);if(approach==null)continue;
-            double dx=approach.getX()+.5-visualX,dz=approach.getZ()+.5-visualZ,dist=dx*dx+dz*dz;int pri=priority(task.getInt("type"));
-            if(pri<bestPriority||(pri==bestPriority&&dist<bestDistance)){best=i;bestPriority=pri;bestDistance=dist;goal=approach;}
+            int sx=Math.floorDiv(task.getInt("x")-(d.centerX-d.width/2),16),sz=Math.floorDiv(task.getInt("z")-(d.centerZ-d.width/2),16);
+            int sameSector=(sx==sectorX&&sz==sectorZ)?0:1,pri=priority(task.getInt("type"));double dist=steps.get(key(approach));
+            // Finish reachable work in the current 16x16 sector; choose the next by actual route length.
+            boolean better=sameSector<bestSector||sameSector==bestSector&&(sameSector==0?(pri<bestPriority||pri==bestPriority&&dist<bestDistance):(dist<bestDistance||dist==bestDistance&&pri<bestPriority));
+            if(better){best=i;bestPriority=pri;bestSector=sameSector;bestDistance=dist;goal=approach;}
         }
         reachable=Map.of();
         if(best<0){for(int i=d.taskCursor;i<d.tasks.size();i++){d.inaccessibleJobs++;deferJob(d,d.task(i),accessReason(level,d.task(i),nodes.size()));}d.skipped+=d.tasks.size()-d.taskCursor;d.taskCursor=d.tasks.size();d.setDirty();return false;}
         int start=d.taskCursor;if(best!=start){var a=d.tasks.get(start);d.tasks.set(start,d.tasks.get(best));d.tasks.set(best,a);}
+        CompoundTag chosen=d.task(start);sectorX=Math.floorDiv(chosen.getInt("x")-(d.centerX-d.width/2),16);sectorZ=Math.floorDiv(chosen.getInt("z")-(d.centerZ-d.width/2),16);
         recoveringRoute=false;route.clear();for(long k=key(goal);k!=key(current);k=parents.get(k))route.add(nodes.get(k));Collections.reverse(route);routeIndex=0;walking=!route.isEmpty();return true;
+    }
+    /** Repair only audited road tiles within one block of the worker, without interrupting its route. */
+    private void repairRoadWhileWalking(MinecraftServer server,ServerLevel level,ConstructorData d){
+        if(placementDelay>0){placementDelay--;return;}
+        int x=(int)Math.floor(visualX),z=(int)Math.floor(visualZ);
+        for(int[] offset:new int[][]{{0,0},{1,0},{-1,0},{0,1},{0,-1}}){
+            CompoundTag job=roadsideJobs.get(key(x+offset[0],z+offset[1]));if(job==null)continue;
+            BlockPos p=new BlockPos(job.getInt("x"),job.getInt("y"),job.getInt("z"));
+            if(Math.abs(footHeight(level,p)-visualY)>1.2||level.getBlockState(p).is(Blocks.DIRT_PATH)||!canRoadTile(level,d,p))continue;
+            if(level.setBlock(p,Blocks.DIRT_PATH.defaultBlockState(),3)){
+                d.placed++;String name=Integer.toString(PATH);d.completed.putInt(name,d.completed.getInt(name)+1);
+                placementDelay=WORK_DELAY_TICKS;animate(server,level);d.setDirty();
+            }return;
+        }
     }
     private void walkOneTick(ServerLevel level){
         if(routeIndex>=route.size())return;
@@ -890,7 +926,7 @@ public final class ConstructorBuilder {
     }
     private void loadPlan(ConstructorData d){
         roadReserve.clear();for(int i=0;i<d.roadCells.size();i++){CompoundTag c=d.roadCells.getCompound(i);roadReserve.add(key(c.getInt("x"),c.getInt("z")));}
-        planned.clear();for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);planned.add(t.getInt("type")+":"+t.getInt("x")+":"+t.getInt("y")+":"+t.getInt("z"));}planLoaded=true;
+        roadsideJobs.clear();planned.clear();for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(t.getInt("type")==PATH)roadsideJobs.put(key(t.getInt("x"),t.getInt("z")),t);planned.add(t.getInt("type")+":"+t.getInt("x")+":"+t.getInt("y")+":"+t.getInt("z"));}planLoaded=true;
     }
     private void resetActor(MinecraftServer server){
         if(actor!=null)for(ServerPlayer p:server.getPlayerList().getPlayers()){
@@ -979,12 +1015,26 @@ public final class ConstructorBuilder {
     private int nearestHouseDistance(ConstructorData d,BlockPos p){int best=1000;for(int i=0;i<d.doors.size();i++){CompoundTag t=d.doors.getCompound(i);best=Math.min(best,Math.max(Math.abs(t.getInt("x")-p.getX()),Math.abs(t.getInt("z")-p.getZ())));}return best;}
     private boolean earth(BlockState s){return s.is(Blocks.GRASS_BLOCK)||s.is(Blocks.DIRT)||s.is(Blocks.COARSE_DIRT)||s.is(Blocks.STONE)||s.is(Blocks.ANDESITE)||s.is(Blocks.GRANITE)||s.is(Blocks.DIORITE);}
     private boolean wildGroundCover(BlockState s){return s.is(Blocks.GRASS)||s.is(Blocks.TALL_GRASS)||s.is(Blocks.FERN)||s.is(Blocks.LARGE_FERN)||s.is(Blocks.DEAD_BUSH)||s.is(Blocks.SNOW);}
+    /** Terrain may replace natural water/lava and foliage, never waterlogged construction, crops or logs. */
+    private boolean terrainCover(ServerLevel level,BlockPos p){
+        BlockState s=level.getBlockState(p);
+        if(level.getBlockEntity(p)!=null||s.getBlock() instanceof net.minecraft.world.level.block.CropBlock||s.is(BlockTags.LOGS))return false;
+        return s.isAir()||wildGroundCover(s)||s.is(BlockTags.LEAVES)||s.is(BlockTags.FLOWERS)
+            ||s.is(Blocks.PINK_PETALS)||s.is(Blocks.VINE)||s.is(Blocks.GLOW_LICHEN)||s.is(Blocks.LILY_PAD)
+            ||s.is(Blocks.SEAGRASS)||s.is(Blocks.TALL_SEAGRASS)||s.is(Blocks.KELP)||s.is(Blocks.KELP_PLANT)
+            ||s.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock;
+    }
     private BlockPos terrainSurface(ServerLevel level,int x,int z){
         BlockPos p=rawSurface(level,x,z);if(p==null)return null;
-        for(int n=0;n<4&&wildGroundCover(level.getBlockState(p));n++)p=p.below();
+        for(int n=0;n<32&&p.getY()>level.getMinBuildHeight()&&terrainCover(level,p);n++)p=p.below();
         return p;
     }
-    private boolean fillMaterial(BlockState s){return earth(s)||s.is(Blocks.COBBLESTONE)||s.is(Blocks.GRAVEL)||s.is(Blocks.ROOTED_DIRT)||s.is(Blocks.PODZOL);}
+    private boolean openTerrainColumn(ServerLevel level,BlockPos p){
+        int top=level.getHeight(Heightmap.Types.WORLD_SURFACE,p.getX(),p.getZ());
+        for(int y=p.getY()+1;y<=top;y++)if(!terrainCover(level,new BlockPos(p.getX(),y,p.getZ())))return false;
+        return true;
+    }
+    private boolean fillMaterial(BlockState s){return earth(s)||s.is(Blocks.SAND)||s.is(Blocks.RED_SAND)||s.is(Blocks.CLAY)||s.is(Blocks.MUD)||s.is(Blocks.COBBLESTONE)||s.is(Blocks.GRAVEL)||s.is(Blocks.ROOTED_DIRT)||s.is(Blocks.PODZOL);}
     private boolean terrainFootprintReserved(ConstructorData d,BlockPos p){
         for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int type=t.getInt("type"),r=isMacro(type)?3:type==LAMP?1:-1;
             if(r>=0&&Math.abs(t.getInt("x")-p.getX())<=r&&Math.abs(t.getInt("z")-p.getZ())<=r)return true;
@@ -994,12 +1044,12 @@ public final class ConstructorBuilder {
         }return false;
     }
     private boolean validBasinColumn(ServerLevel level,ConstructorData d,BlockPos p,int target){
-        if(!inside(d,p)||target<=p.getY()||target-p.getY()>6||!fillMaterial(level.getBlockState(p))||terrainFootprintReserved(d,p)||!level.canSeeSky(p.above())||!level.getFluidState(p).isEmpty())return false;
-        for(int y=p.getY()+1;y<=target+2;y++){BlockPos q=new BlockPos(p.getX(),y,p.getZ());BlockState s=level.getBlockState(q);if((!s.isAir()&&!wildGroundCover(s))||!level.getFluidState(q).isEmpty()||level.getBlockEntity(q)!=null)return false;}
+        if(!inside(d,p)||target<=p.getY()||target-p.getY()>6||!fillMaterial(level.getBlockState(p))||terrainFootprintReserved(d,p)||!openTerrainColumn(level,p))return false;
+        for(int y=p.getY()+1;y<=target+2;y++){BlockPos q=new BlockPos(p.getX(),y,p.getZ());BlockState s=level.getBlockState(q);if(!terrainCover(level,q))return false;}
         return true;
     }
     private void queueEarthColumn(ServerLevel level,ConstructorData d,BlockPos p,int target,boolean stone){
-        for(int y=target+2;y>p.getY();y--){BlockPos cover=new BlockPos(p.getX(),y,p.getZ());if(wildGroundCover(level.getBlockState(cover)))pending.add(new Placement(cover,Blocks.AIR.defaultBlockState(),true));}
+        for(int y=target+2;y>p.getY();y--){BlockPos cover=new BlockPos(p.getX(),y,p.getZ());if(!level.getBlockState(cover).isAir()&&terrainCover(level,cover))pending.add(new Placement(cover,Blocks.AIR.defaultBlockState(),true));}
         for(int y=p.getY()+1;y<=target;y++)pending.add(new Placement(new BlockPos(p.getX(),y,p.getZ()),stone?Blocks.COBBLESTONE.defaultBlockState():y==target?(roadReserve.contains(key(p))?Blocks.DIRT_PATH.defaultBlockState():Blocks.GRASS_BLOCK.defaultBlockState()):Blocks.DIRT.defaultBlockState(),true));
     }
     private void planSurfaceRepairs(ServerLevel level,ConstructorData d){
@@ -1007,7 +1057,7 @@ public final class ConstructorBuilder {
         int minX=d.centerX-d.width/2,minZ=d.centerZ-d.width/2;
         for(int x=minX;x<minX+d.width;x++)for(int z=minZ;z<minZ+d.width;z++){
             BlockPos p=terrainSurface(level,x,z);if(p==null)continue;var c=new SurfaceBasinPlan.Cell(x,z);heights.put(c,p.getY());bases.put(c,p);
-            if(!fillMaterial(level.getBlockState(p))||!level.getFluidState(p).isEmpty()||!level.canSeeSky(p.above())||level.getBlockEntity(p)!=null)protectedCells.add(c);
+            if(!fillMaterial(level.getBlockState(p))||!openTerrainColumn(level,p)||level.getBlockEntity(p)!=null||terrainFootprintReserved(d,p))protectedCells.add(c);
         }
         var plan=SurfaceBasinPlan.plan(heights,protectedCells,minX,minZ,d.width);int columns=0,blocked=0;
         for(var entry:plan.targets().entrySet()){BlockPos p=bases.get(entry.getKey());if(!validBasinColumn(level,d,p,entry.getValue())){blocked++;continue;}
@@ -1021,9 +1071,9 @@ public final class ConstructorBuilder {
     }
     private boolean validEarthColumn(ServerLevel level,ConstructorData d,BlockPos p,int target){
         if(terrainFootprintReserved(d,p))return false;
-        if(!inside(d,p)||target<=p.getY()||target-p.getY()>12||target>=level.getMaxBuildHeight()-2||!earth(level.getBlockState(p))||level.getBlockEntity(p)!=null)return false;
-        if(!level.canSeeSky(p.above())||!level.getFluidState(p).isEmpty()||entranceReserved(d,p)||isRoad(level,p))return false;
-        for(int y=p.getY()+1;y<=target+2;y++){BlockPos q=new BlockPos(p.getX(),y,p.getZ());BlockState state=level.getBlockState(q);if((!state.isAir()&&!wildGroundCover(state))||!level.getFluidState(q).isEmpty()||level.getBlockEntity(q)!=null)return false;}
+        if(!inside(d,p)||target<=p.getY()||target-p.getY()>12||target>=level.getMaxBuildHeight()-2||!fillMaterial(level.getBlockState(p))||level.getBlockEntity(p)!=null)return false;
+        if(!openTerrainColumn(level,p)||entranceReserved(d,p)||isRoad(level,p))return false;
+        for(int y=p.getY()+1;y<=target+2;y++){BlockPos q=new BlockPos(p.getX(),y,p.getZ());BlockState state=level.getBlockState(q);if(!terrainCover(level,q))return false;}
         return true;
     }
     private void planLandscape(ServerLevel level,ConstructorData d){
@@ -1036,7 +1086,7 @@ public final class ConstructorBuilder {
         for(int x=minX;x<minX+d.width;x++)for(int z=minZ;z<minZ+d.width;z++){
             BlockPos p=terrainSurface(level,x,z);if(p==null)continue;var c=new TerrainApronPlan.Cell(x,z);BlockState floor=level.getBlockState(p);
             heights.put(c,Math.max(p.getY(),basins.getOrDefault(key(p),p.getY())));bases.put(c,p);
-            if(!earth(floor)||!level.getFluidState(p).isEmpty()||!level.canSeeSky(p.above())||level.getBlockEntity(p)!=null){blocked.add(c);continue;}
+            if(!fillMaterial(floor)||!openTerrainColumn(level,p)||level.getBlockEntity(p)!=null){blocked.add(c);continue;}
             if(floor.is(Blocks.GRASS_BLOCK)||floor.is(Blocks.DIRT))anchors.add(c);
         }
         var apron=TerrainApronPlan.plan(heights,anchors,blocked,minX,minZ,d.width);
@@ -1053,7 +1103,7 @@ public final class ConstructorBuilder {
             if(apron.targets().containsKey(new TerrainApronPlan.Cell(t.getInt("x"),t.getInt("z"))))d.tasks.remove(i);
         }
         int farmLinks=0;for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);if(t.getInt("type")!=FARM)continue;int before=d.tasks.size();for(Direction dir:Direction.Plane.HORIZONTAL){CompoundTag entrance=new CompoundTag();entrance.putInt("x",t.getInt("x")+dir.getStepX()*2);entrance.putInt("y",t.getInt("y")+1);entrance.putInt("z",t.getInt("z")+dir.getStepZ()*2);entrance.putInt("facing",dir.get2DDataValue());planEntranceLink(level,d,entrance);if(d.tasks.size()>before){farmLinks++;break;}}}
-        d.landscapeReport=(d.landscapeReport.startsWith("pozos:")?d.landscapeReport+"; ":"")+"taludes: "+apron.edges()+" bordes detectados, "+columns+" columnas y "+volume+" bloques de relleno previstos; "+obstacles+" columnas protegidas/obstruidas, "+apron.clipped()+" continuaciones fuera de parcela, "+apron.tooDeep()+" cortes de más de 12 bloques; "+farmLinks+" accesos a cultivos. Hileras de césped cada 2 bloques, sin excavar";
+        d.landscapeReport=(d.landscapeReport.startsWith("pozos:")?d.landscapeReport+"; ":"")+"taludes: "+apron.edges()+" bordes detectados, "+columns+" columnas y "+volume+" bloques de relleno previstos; "+obstacles+" columnas protegidas/obstruidas, "+apron.clipped()+" continuaciones fuera de parcela, "+apron.tooDeep()+" cortes de más de 12 bloques; "+farmLinks+" accesos a cultivos. Hileras de césped cada 2 bloques, desde fondo firme; admite líquidos y follaje, sin excavar";
     }
     private boolean canLookout(ServerLevel level,ConstructorData d,BlockPos center){
         if(remembered(d,LOOKOUT,center))return false;
@@ -1116,7 +1166,7 @@ public final class ConstructorBuilder {
         if(d.chestsFailed>0||d.chestsBoundary>0)report.append(" Cofres pendientes: fallidos ").append(d.chestsFailed).append(", dobles que cruzan el límite ").append(d.chestsBoundary).append('.');
         if(!ConstructorLootr.available())report.append(" Lootr no está instalado: cofres conservados.");
         for(int i=0;i<d.pendingExamples.size();i++){CompoundTag e=d.pendingExamples.getCompound(i);report.append("\nEjemplo pendiente: ").append(jobName(e.getInt("type"))).append(" en ").append(e.getInt("x")).append(' ').append(e.getInt("y")).append(' ').append(e.getInt("z")).append(": ").append(e.getString("reason")).append('.');}
-        if(d.reviewPending)report.append(" No marqué la zona como terminada. Revisé las tareas pendientes después de las reparaciones; siguen protegidas o sin acceso. Usá /constructor iniciar para reintentarlas sin crear otra zona.");
+        if(d.reviewPending)report.append(" No marqué la zona como terminada. Revisé las tareas pendientes después de las reparaciones; siguen protegidas o sin acceso. Usá /constructor iniciar para auditar de nuevo y reintentar sin crear otra zona.");
         if(left.isEmpty())report.append(" No detecté más trabajos dentro de las reglas actuales; esto no garantiza que toda la aldea esté completa.");
         return report.toString();
     }

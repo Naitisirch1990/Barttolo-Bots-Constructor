@@ -20,6 +20,72 @@ public class ConstructorGameTests {
     static Object field(ConstructorBuilder b,String name)throws Exception{Field f=ConstructorBuilder.class.getDeclaredField(name);f.setAccessible(true);return f.get(b);}
     static CompoundTag task(int type,BlockPos p){CompoundTag t=new CompoundTag();t.putInt("type",type);t.putInt("x",p.getX());t.putInt("y",p.getY());t.putInt("z",p.getZ());return t;}
     @GameTest(template="empty",timeoutTicks=200)
+    public static void wetCliffAndFoliageAreFilledFromSolidBottom(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1280,level.getMaxBuildHeight()-32,origin.getZ()+1280);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            int floor=x<=0?c.getY():c.getY()-4;
+            for(int y=c.getY()-6;y<=c.getY()+6;y++){
+                BlockPos p=new BlockPos(c.getX()+x,y,c.getZ()+z);
+                level.setBlockAndUpdate(p,y<floor?Blocks.STONE.defaultBlockState():y==floor?(x>0?Blocks.CLAY:Blocks.GRASS_BLOCK).defaultBlockState():Blocks.AIR.defaultBlockState());
+            }
+            if(x>0&&x<4)for(int y=-3;y<=-2;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.WATER.defaultBlockState());
+            if(x>=4&&x<=7)level.setBlockAndUpdate(c.offset(x,-3,z),Blocks.PINK_PETALS.defaultBlockState());
+        }
+        BlockPos leaf=c.offset(3,-1,-4);level.setBlockAndUpdate(leaf,Blocks.CHERRY_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT,true));
+        BlockPos tree=c.offset(2,-4,8);for(int y=1;y<=6;y++)level.setBlockAndUpdate(tree.above(y),Blocks.CHERRY_LOG.defaultBlockState());
+        for(int z:new int[]{-8,8}){CompoundTag door=task(0,c.offset(-8,1,z));door.putInt("facing",0);d.doors.add(door);}
+        field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
+        h.assertTrue(c.offset(1,-4,0).equals(call(b,"terrainSurface",new Class[]{ServerLevel.class,int.class,int.class},level,c.getX()+1,c.getZ())),"water surface must resolve to its solid clay bed");
+        call(b,"planLandscape",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.tasks.size()>100,"wet edge and petals must not stop the continuous apron");
+        for(int tick=0;tick<60000&&!d.finished&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.finished&&d.failedPlacements==0,"finish wet apron from its reachable bank, pending="+d.retryTasks.size());
+        for(int z:new int[]{-4,0,4})for(int x=1;x<=6;x++){
+            int target=c.getY()-(x+1)/2;
+            h.assertTrue(level.getBlockState(new BlockPos(c.getX()+x,target,c.getZ()+z)).is(Blocks.GRASS_BLOCK),"missing wet/foliage apron cap "+x+","+z);
+            for(int y=c.getY()-3;y<target;y++)h.assertTrue(level.getBlockState(new BlockPos(c.getX()+x,y,c.getZ()+z)).is(Blocks.DIRT),"fill must replace liquid from the bed upward");
+        }
+        h.assertTrue(level.getBlockState(tree.above()).is(Blocks.CHERRY_LOG),"never remove a tree trunk to force the apron");
+        h.assertTrue(!level.getBlockState(leaf).is(Blocks.CHERRY_LEAVES),"foliage intersecting the work must be cleared");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void sectorsAndRoadRepairDuringTravel(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1536,level.getMaxBuildHeight()-24,origin.getZ()+1536);
+        ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;
+        for(int x=-16;x<16;x++)for(int z=-16;z<16;z++){
+            level.setBlockAndUpdate(c.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
+            for(int y=1;y<=5;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        field(b,"visualX",c.getX()-6.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()-4.5);
+        CompoundTag distant=task(10,c.offset(6,0,-4));distant.putInt("direction",c.getY()+1);d.tasks.add(distant);
+        d.tasks.add(task(2,c.offset(-6,0,-4)));d.tasks.add(task(2,c.offset(-3,0,-4)));
+        for(int tick=0;tick<500&&d.taskCursor==0;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+        h.assertTrue(d.taskCursor==1&&d.task(0).getInt("type")==2,"choose local work before a remote higher-priority job");
+        call(b,"beginNearestTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue(d.task(1).getInt("type")==2,"finish the current sector before crossing to the distant fill");
+        ConstructorBuilder walker=new ConstructorBuilder();ConstructorData roads=new ConstructorData();roads.width=32;roads.centerX=c.getX();roads.centerY=c.getY()+1;roads.centerZ=c.getZ();roads.dimension=d.dimension;roads.chestsDone=true;
+        for(int x=-5;x<=5;x++)roads.tasks.add(task(16,c.offset(x,0,6)));
+        call(walker,"loadPlan",new Class[]{ConstructorData.class},roads);
+        field(walker,"visualX",c.getX()-6.5);field(walker,"visualY",c.getY()+1.0);field(walker,"visualZ",c.getZ()+6.5);
+        @SuppressWarnings("unchecked") java.util.ArrayList<BlockPos> route=(java.util.ArrayList<BlockPos>)field(walker,"route");
+        for(int x=-6;x<=7;x++)route.add(c.offset(x,0,6));field(walker,"walking",true);
+        for(int tick=0;tick<70;tick++)call(walker,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,roads);
+        h.assertTrue((boolean)field(walker,"walking")&&roads.taskCursor==0,"road edits must occur during the current trip");
+        h.assertTrue(roads.placed>=4&&level.getBlockState(c.offset(-4,0,6)).is(Blocks.DIRT_PATH),"repair audited tiles while walking, without a separate trip per tile");
+        h.assertTrue(level.getBlockState(c.offset(-4,0,7)).is(Blocks.GRASS_BLOCK),"do not turn unrelated lawn into a path");
+        // Full audit is stationary and preserves unfinished jobs even if saved during the audit.
+        call(b,"restartSurvey",new Class[]{ConstructorData.class},d);
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));
+        h.assertTrue(restored.scanning&&!restored.auditCarry.isEmpty(),"carry unfinished sector jobs across a restart during the survey");
+        double before=(double)field(b,"visualX");int placed=d.placed;
+        while(d.scanning)call(b,"scanBatch",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        h.assertTrue((double)field(b,"visualX")==before&&d.placed==placed,"complete the audit without moving or editing blocks");
+        h.assertTrue(d.auditCarry.isEmpty()&&d.tasks.size()>0,"merge unfinished jobs into the fresh audit");
+        h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
     public static void pavedVillageFloorIsConnectedAtCurrentHeight(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(4,2,4));BlockPos c=new BlockPos(origin.getX()+1024,level.getMaxBuildHeight()-24,origin.getZ()+1024);
         ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=new ConstructorData();d.width=32;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.chestsDone=true;d.active=true;d.scanning=false;
@@ -81,6 +147,7 @@ public class ConstructorGameTests {
         }
         BlockPos road=c.offset(-2,0,0);level.setBlockAndUpdate(road,Blocks.DIRT_PATH.defaultBlockState());
         BlockPos pond=c.offset(8,0,8);level.setBlockAndUpdate(pond,Blocks.WATER.defaultBlockState());
+        CompoundTag decorativePond=task(25,pond);decorativePond.putString("dimension",d.dimension);d.memory.add(decorativePond);
         h.assertTrue((boolean)call(b,"isWalkableGround",new Class[]{ServerLevel.class,BlockPos.class},level,c.below()),"natural stone floors must be traversable");
         field(b,"visualX",c.getX()-3.5);field(b,"visualY",c.getY()+1.0);field(b,"visualZ",c.getZ()+.5);
         CompoundTag nearbyBench=task(20,c.offset(8,0,0));nearbyBench.putString("dimension",d.dimension);d.memory.add(nearbyBench);
@@ -91,7 +158,7 @@ public class ConstructorGameTests {
         for(int tick=0;tick<20000&&!d.finished;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
         h.assertTrue(d.finished&&d.inaccessibleJobs==0&&d.invalidJobs==0&&d.failedPlacements==0,"complete pit repair after a planned column has already changed: invalid="+d.invalidJobs);
         for(int x=0;x<4;x++)for(int z=0;z<4;z++)h.assertTrue(level.getBlockState(c.offset(x,0,z)).is(Blocks.GRASS_BLOCK),"pit must match its flat rim, including inner columns");
-        h.assertTrue(level.getBlockState(road).is(Blocks.DIRT_PATH)&&level.getBlockState(pond).is(Blocks.WATER),"preserve nearby road and existing water");
+        h.assertTrue(level.getBlockState(road).is(Blocks.DIRT_PATH)&&level.getBlockState(pond).is(Blocks.WATER),"preserve nearby road and the remembered decorative pond");
         h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)

@@ -1,3 +1,13 @@
+## 0.4.4 / constructor-test17
+
+- `/constructor iniciar` realiza una nueva auditoría completa y quieta de la parcela antes de caminar. Conserva los trabajos pendientes y su estado si el servidor se reinicia durante el análisis. Si ya está trabajando, no interrumpe el recorrido.
+- Completa los trabajos alcanzables de cada sector de 16×16 antes de elegir otro por longitud de ruta. Dentro del sector prioriza el terreno y los caminos. Los obstáculos reales siguen figurando como pendientes.
+- Repara los bloques de camino ya auditados que encuentra a sus pies y a un bloque al costado durante un traslado, sin inventar nuevos senderos.
+- Los pozos y taludes reconocen el fondo firme bajo agua/lava, pétalos, flores y hojas. Retira únicamente la cobertura que intercepta el relleno y el espacio de trabajo. No utiliza el líquido o las hojas como cimentación; rellena desde abajo con tierra y termina con césped.
+- Mantiene protegidos troncos, cultivos, bloques con inventario, construcciones y estanques recordados del catálogo. Conserva los límites de parcela y de profundidad (pozos 6, taludes 12); no rellena ríos enteros fuera del talud planificado.
+- Velocidad y separación de farolas sin cambios respecto de test16.
+- Pruebas Forge: borde con agua, arcilla, pétalos y hojas; protección de troncos y estanques; auditoría sin movimiento ni cambios, persistencia de pendientes, trabajo por sectores y camino durante el recorrido, más regresiones existentes.
+
 # Barttolo Bots — Constructor
 
 Mod de Minecraft Java 1.20.1 / Forge 47.4.10. Conserva el Asistente y añade un Constructor visible para mejorar gradualmente una aldea.
