@@ -691,7 +691,7 @@ if(d.taskCursor<d.tasks.size()){CompoundTag job=d.task(d.taskCursor);if(skipped)
         if(type==RAMP||type==RETAIN||type==FILL||type==PATH||isLawnJob(type)||type==REMOVE_FENCE){
             BlockPos best=null;double score=Double.MAX_VALUE;
             for(int dx=-4;dx<=4;dx++)for(int dz=-4;dz<=4;dz++){
-                if((dx==0&&dz==0&&type!=PATH&&!isLawnJob(type))||dx*dx+dz*dz>20)continue;
+                if((dx==0&&dz==0&&type!=PATH&&type!=GRASS&&type!=PATCH)||dx*dx+dz*dz>20)continue;
                 BlockPos p=reachable.isEmpty()?surface(level,target.getX()+dx,target.getZ()+dz):reachable.get(key(target.getX()+dx,target.getZ()+dz));
                 if(p==null||!inside(d,p)||(!reachable.isEmpty()&&!reachable.containsKey(key(p))))continue;
                 if(type==PATH||isLawnJob(type)?Math.abs(p.getY()-target.getY())>2:type==REMOVE_FENCE?Math.abs(p.getY()-target.getY())>12:Math.abs(p.getY()-direction)>12)continue;
