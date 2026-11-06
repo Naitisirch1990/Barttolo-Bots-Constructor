@@ -122,10 +122,13 @@ public final class RoadConstructor {
         for(long key:wanted){tickets.add(key);var c=new net.minecraft.world.level.ChunkPos(key);l.getChunkSource().addRegionTicket(TICKET,c,0,key);}
     }
     public void tick(MinecraftServer s){
-        Data d=Data.get(s);boolean plan=d.state.equals("PLANIFICANDO"),build=d.state.equals("CONSTRUYENDO"),undo=d.state.equals("DESHACIENDO");
+        if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;
+        tickProject(s,Data.get(s));
+    }
+    void tickProject(MinecraftServer s,Data d){
+        boolean plan=d.state.equals("PLANIFICANDO"),build=d.state.equals("CONSTRUYENDO"),undo=d.state.equals("DESHACIENDO");
         if(!plan&&!build&&!undo){release();removeWorker();return;}
         ServerLevel l=level(s,d);if(l==null){halt(s,d,"Dimensión ausente.");return;}
-        if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;
         int total=d.length()*5;
         for(int budget=0;budget<8;budget++){
             if(undo){
@@ -165,7 +168,7 @@ public final class RoadConstructor {
         }
     }
     private void showWorker(ServerLevel l,BlockPos p){
-        if(worker==null||worker.isRemoved()||worker.level()!=l){removeWorker();worker=EntityType.VILLAGER.create(l);if(worker==null)return;worker.setNoAi(true);worker.setInvulnerable(true);worker.setSilent(true);worker.setCustomName(Component.literal("Constructor"));worker.setCustomNameVisible(true);worker.setPersistenceRequired();worker.addTag("barttolo_road_worker");worker.moveTo(p.getX()+.5,p.getY(),p.getZ()+.5,0,0);l.addFreshEntity(worker);}
+        if(worker==null||worker.isRemoved()||worker.level()!=l){removeWorker();worker=EntityType.VILLAGER.create(l);if(worker==null)return;worker.setVillagerData(worker.getVillagerData().setProfession(net.minecraft.world.entity.npc.VillagerProfession.MASON));worker.setNoAi(true);worker.setInvulnerable(true);worker.setSilent(true);worker.setCustomName(Component.literal("Constructor"));worker.setCustomNameVisible(true);worker.setPersistenceRequired();worker.addTag("barttolo_road_worker");worker.moveTo(p.getX()+.5,p.getY(),p.getZ()+.5,0,0);l.addFreshEntity(worker);}
         worker.teleportTo(p.getX()+.5,p.getY(),p.getZ()+.5);worker.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
     }
     private void halt(MinecraftServer s,Data d,String message){d.state=d.cursor>0?"PAUSADO":"RECHAZADO";d.report=message;d.setDirty();release();removeWorker();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor detenido: "+message),false);}
