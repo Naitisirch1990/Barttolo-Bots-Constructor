@@ -1,6 +1,14 @@
 package net.barttolo.bots;
 
 import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.properties.Property;
+import com.mojang.datafixers.util.Pair;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.DyeableLeatherItem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -30,6 +38,14 @@ public final class ConstructorBuilder {
     private record Placement(BlockPos pos,BlockState state){}
     private record Search(Map<Long,BlockPos> nodes,Map<Long,Long> parents,Map<Long,Integer> costs){}
     private FakePlayer actor;
+    // FULL (33), not entity-ticking tickets: the gardener edits from the server tick.
+    // Private, transient ownership never interferes with /forceload or other mods.
+    private static final TicketType<UUID> GARDEN_TICKET=TicketType.create("barttolobots_garden",Comparator.comparing(UUID::toString));
+    private final UUID ticketOwner=UUID.randomUUID();
+    private final Set<Long> heldChunks=new HashSet<>();
+    private ServerLevel ticketLevel;
+    private int ticketMinX,ticketMinZ,ticketWidth;
+    private final List<Pair<EquipmentSlot,ItemStack>> clothes=gardenerClothes();
     private final Set<UUID> visible=new HashSet<>(),listed=new HashSet<>();
     private final ArrayDeque<Placement> pending=new ArrayDeque<>();
     private final ArrayList<BlockPos> route=new ArrayList<>();
@@ -47,40 +63,115 @@ public final class ConstructorBuilder {
 
     public int create(CommandSourceStack source,int width){
         if(width<32||width>256){source.sendFailure(Component.literal("El área debe medir entre 32 y 256 bloques de lado."));return 0;}
-        ConstructorData d=ConstructorData.get(source.getServer());d.dimension=source.getLevel().dimension().location().toString();d.width=width;
+        releaseChunks();ConstructorData d=ConstructorData.get(source.getServer());d.positionSaved=false;visualInitialized=false;d.dimension=source.getLevel().dimension().location().toString();d.width=width;
         d.centerX=(int)Math.floor(source.getPosition().x);d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=(int)Math.floor(source.getPosition().z);
         d.configured=true;d.placed=0;d.completedJobs=0;d.skipped=0;restartSurvey(d);d.active=false;d.auditOnly=true;
         BlockPos start=findSafeStart(source.getLevel(),d);if(start==null){d.configured=false;source.sendFailure(Component.literal("No encontré suelo transitable cerca del centro."));return 0;}
-        d.centerY=start.getY()+1;visualX=start.getX()+.5;visualY=footHeight(source.getLevel(),start);visualZ=start.getZ()+.5;visualInitialized=true;resetActor(source.getServer());d.setDirty();
-        source.sendSuccess(()->Component.literal("Jardinero: inspección de "+d.areaLabel()+" iniciada. Revisaré césped, bordes y cuadrícula de farolas; usá /constructor iniciar para trabajar."),false);return 1;
+        d.centerY=start.getY()+1;visualX=start.getX()+.5;visualY=footHeight(source.getLevel(),start);visualZ=start.getZ()+.5;visualInitialized=true;savePosition(d);resetActor(source.getServer());d.setDirty();
+        source.sendSuccess(()->Component.literal("Jardinero: inspección de "+d.areaLabel()+" iniciada. Revisaré césped, bordes y cuadrícula de farolas; usá /jardinero iniciar para trabajar."),false);return 1;
     }
     private void restartSurvey(ConstructorData d){
         d.scanning=true;d.cursor=0;d.taskCursor=0;d.finished=false;d.reviewPending=false;d.lastReport="";d.tasks.clear();d.retryTasks.clear();
         surveyFloors.clear();obstacles.clear();pending.clear();route.clear();routeIndex=0;walking=false;recoveringRoute=false;placementDelay=0;sectorX=Integer.MIN_VALUE;recoveryAttempts=0;recoveryDelay=0;announced=false;planLoaded=true;d.setDirty();
     }
     public int start(CommandSourceStack source){
-        ConstructorData d=ConstructorData.get(source.getServer());if(!d.configured){source.sendFailure(Component.literal("Primero usá /constructor crear [32..256]."));return 0;}
-        if(d.active)return 1;if(d.finished||d.reviewPending)restartSurvey(d);d.active=true;d.auditOnly=false;announced=false;d.setDirty();
+        ConstructorData d=ConstructorData.get(source.getServer());if(!d.configured){source.sendFailure(Component.literal("Primero usá /jardinero crear [32..256]."));return 0;}
+        if(d.active)return 1;if(d.reviewPending)return resume(source);if(d.finished){source.sendSuccess(()->Component.literal("Jardinero: no quedan tareas. Usá auditar si querés una inspección nueva."),false);return 1;}d.active=true;d.auditOnly=false;announced=false;d.setDirty();
         source.sendSuccess(()->Component.literal(d.scanning?"Jardinero: terminaré la inspección antes de moverme.":"Jardinero: trabajo iniciado sobre el césped."),false);return 1;
     }
     public int audit(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());if(!d.configured){source.sendFailure(Component.literal("Primero asigná un área con crear."));return 0;}
         restartSurvey(d);d.active=false;d.auditOnly=true;source.sendSuccess(()->Component.literal("Inspección de jardinería iniciada."),false);return 1;
     }
-    public int pause(CommandSourceStack source){ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.auditOnly=false;d.setDirty();source.sendSuccess(()->Component.literal("Jardinero pausado; progreso conservado."),false);return 1;}
-    public int cancel(CommandSourceStack source){ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.configured=false;d.setDirty();pending.clear();route.clear();walking=false;planLoaded=false;resetActor(source.getServer());source.sendSuccess(()->Component.literal("Asignación cancelada; la decoración colocada se conserva."),false);return 1;}
+    public int pause(CommandSourceStack source){ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.auditOnly=false;savePosition(d);releaseChunks();d.setDirty();source.sendSuccess(()->Component.literal("Jardinero pausado; progreso conservado."),false);return 1;}
+    public int cancel(CommandSourceStack source){ConstructorData d=ConstructorData.get(source.getServer());d.active=false;d.configured=false;savePosition(d);releaseChunks();d.setDirty();pending.clear();route.clear();walking=false;planLoaded=false;visualInitialized=false;resetActor(source.getServer());source.sendSuccess(()->Component.literal("Asignación cancelada; la decoración colocada se conserva."),false);return 1;}
     public int status(CommandSourceStack source){
         ConstructorData d=ConstructorData.get(source.getServer());String state=!d.configured?"sin área":d.scanning?"inspeccionando":d.reviewPending?"con pendientes":d.finished?"terminado":d.active?"trabajando":"pausado";
         String info=!d.lastReport.isEmpty()?d.lastReport:"Jardinero "+state+" | "+d.areaLabel()+" | inspección "+d.cursor+"/"+((d.width+2*HALO)*(d.width+2*HALO))+" columnas | tareas "+d.taskCursor+"/"+d.tasks.size()+" | pasto "+count(d,TUFT)+", flores "+count(d,FLOWER)+", árboles "+count(d,TREE)+", farolas "+count(d,LAMP)+", construcciones "+structureCount(d)+" | colocaciones "+d.placed;
-        source.sendSuccess(()->Component.literal(info),false);return 1;
+        source.sendSuccess(()->Component.literal(info+" | Posición: "+d.dimension+" "+(int)Math.floor(d.positionSaved?d.workerX:d.centerX)+" "+(int)Math.floor(d.positionSaved?d.workerY:d.centerY)+" "+(int)Math.floor(d.positionSaved?d.workerZ:d.centerZ)+" | /jardinero ir · /jardinero continuar"),false);return 1;
     }
     private int structureCount(ConstructorData d){int n=0;for(int i=0;i<d.tasks.size();i++)if(macro(d.task(i).getInt("type")))n++;return n;}
     private int count(ConstructorData d,int type){int n=0;for(int i=0;i<d.tasks.size();i++)if(d.task(i).getInt("type")==type)n++;return n;}
+    /** Keep the whole bounded survey/navigation map available, without simulating every chunk. */
+    private void updateChunks(ServerLevel level,ConstructorData d){
+        if(!d.configured||!(d.active||d.scanning&&d.auditOnly)){releaseChunks();return;}
+        if(ticketLevel==level&&ticketMinX==d.minX()&&ticketMinZ==d.minZ()&&ticketWidth==d.width&&!heldChunks.isEmpty())return;
+        releaseChunks();ticketLevel=level;ticketMinX=d.minX();ticketMinZ=d.minZ();ticketWidth=d.width;
+        for(int x=Math.floorDiv(d.minX()-HALO,16);x<=Math.floorDiv(d.minX()+d.width-1+HALO,16);x++)
+            for(int z=Math.floorDiv(d.minZ()-HALO,16);z<=Math.floorDiv(d.minZ()+d.width-1+HALO,16);z++){
+                ChunkPos chunk=new ChunkPos(x,z);level.getChunkSource().addRegionTicket(GARDEN_TICKET,chunk,0,ticketOwner);heldChunks.add(chunk.toLong());
+            }
+    }
+    private void releaseChunks(){
+        if(ticketLevel!=null)for(long key:heldChunks)ticketLevel.getChunkSource().removeRegionTicket(GARDEN_TICKET,new ChunkPos(key),0,ticketOwner);
+        heldChunks.clear();ticketLevel=null;
+    }
+    private void savePosition(ConstructorData d){
+        if(!visualInitialized)return;
+        if(!d.positionSaved||d.workerX!=visualX||d.workerY!=visualY||d.workerZ!=visualZ){d.workerX=visualX;d.workerY=visualY;d.workerZ=visualZ;d.positionSaved=true;d.setDirty();}
+    }
+    private boolean ensurePosition(ServerLevel level,ConstructorData d){
+        if(visualInitialized)return true;
+        if(d.positionSaved&&Double.isFinite(d.workerX)&&Double.isFinite(d.workerY)&&Double.isFinite(d.workerZ)
+            &&d.contains((int)Math.floor(d.workerX),(int)Math.floor(d.workerZ))&&d.workerY>=level.getMinBuildHeight()&&d.workerY<level.getMaxBuildHeight()){
+            visualX=d.workerX;visualY=d.workerY;visualZ=d.workerZ;visualInitialized=true;return true;
+        }
+        BlockPos p=findSafeStart(level,d);if(p==null)return false;
+        visualX=p.getX()+.5;visualY=footHeight(level,p);visualZ=p.getZ()+.5;visualInitialized=true;savePosition(d);return true;
+    }
+    public void shutdown(MinecraftServer server){
+        savePosition(ConstructorData.get(server));releaseChunks();resetActor(server);visualInitialized=false;planLoaded=false;
+        pending.clear();route.clear();walking=false;surveyFloors.clear();obstacles.clear();
+    }
     public void tick(MinecraftServer server){
-        ConstructorData d=ConstructorData.get(server);if(!d.configured)return;ServerLevel level=level(server,d.dimension);if(level==null)return;
+        ConstructorData d=ConstructorData.get(server);if(!d.configured){releaseChunks();return;}
+        ServerLevel level=level(server,d.dimension);if(level==null){releaseChunks();return;}
+        updateChunks(level,d);
         if(!planLoaded){pending.clear();route.clear();walking=false;planLoaded=true;if(d.scanning){d.cursor=0;surveyFloors.clear();obstacles.clear();}}
-        if(!visualInitialized){BlockPos p=findSafeStart(level,d);if(p==null)return;visualX=p.getX()+.5;visualY=footHeight(level,p);visualZ=p.getZ()+.5;visualInitialized=true;}
-        if(d.scanning&&(d.active||d.auditOnly))scanBatch(level,d);else if(d.active&&!d.scanning)workTick(server,level,d);sync(server,level,d);
+        if(!ensurePosition(level,d))return;
+        if(d.scanning&&(d.active||d.auditOnly))scanBatch(level,d);else if(d.active&&!d.scanning)workTick(server,level,d);
+        savePosition(d);updateChunks(level,d);sync(server,level,d);
+    }
+    /** Search beside the saved feet, not the heightmap (which may be a roof). */
+    private BlockPos nearbySafeGround(ServerLevel level,ConstructorData d,int minimum){
+        int x=(int)Math.floor(visualX),z=(int)Math.floor(visualZ),y=(int)Math.floor(visualY-.01);
+        for(int r=minimum;r<=8;r++)for(int dx=-r;dx<=r;dx++)for(int dz=-r;dz<=r;dz++){
+            if(Math.max(Math.abs(dx),Math.abs(dz))!=r||!d.contains(x+dx,z+dz))continue;
+            level.getChunk(Math.floorDiv(x+dx,16),Math.floorDiv(z+dz,16));
+            BlockPos p=standingGround(level,x+dx,z+dz,y);
+            if(p!=null&&Math.abs(footHeight(level,p)-visualY)<=1.1&&level.getWorldBorder().isWithinBounds(p))return p;
+        }return null;
+    }
+    public int teleportTo(CommandSourceStack source)throws com.mojang.brigadier.exceptions.CommandSyntaxException{
+        ServerPlayer player=source.getPlayerOrException();ConstructorData d=ConstructorData.get(source.getServer());ServerLevel level=level(source.getServer(),d.dimension);
+        if(!d.configured||level==null||!ensurePosition(level,d)){source.sendFailure(Component.literal("No hay Jardinero disponible. Primero asigná un área."));return 0;}
+        BlockPos p=nearbySafeGround(level,d,1);
+        if(p==null){source.sendFailure(Component.literal("No hay suelo seguro junto al Jardinero; usá /jardinero continuar para intentar sacarlo del atasco."));return 0;}
+        player.teleportTo(level,p.getX()+.5,footHeight(level,p),p.getZ()+.5,player.getYRot(),player.getXRot());
+        sync(source.getServer(),level,d);source.sendSuccess(()->Component.literal("Te llevé junto al Jardinero."),false);return 1;
+    }
+    private String taskKey(CompoundTag task){return task.getInt("type")+":"+task.getInt("x")+":"+task.getInt("y")+":"+task.getInt("z");}
+    private void restorePending(ConstructorData d){
+        Set<String> remaining=new HashSet<>();for(int i=d.taskCursor;i<d.tasks.size();i++)remaining.add(taskKey(d.task(i)));
+        for(int i=0;i<d.retryTasks.size();i++){CompoundTag t=d.retryTasks.getCompound(i);if(gardenTask(t.getInt("type"))&&remaining.add(taskKey(t)))d.tasks.add(t.copy());}
+        d.retryTasks.clear();d.reviewPending=false;d.finished=false;d.lastReport="";
+    }
+    public int resume(CommandSourceStack source){
+        ConstructorData d=ConstructorData.get(source.getServer());ServerLevel level=level(source.getServer(),d.dimension);
+        if(!d.configured||level==null||!ensurePosition(level,d)){source.sendFailure(Component.literal("No hay asignación para continuar."));return 0;}
+        if(!d.scanning&&d.taskCursor>=d.tasks.size()&&d.retryTasks.isEmpty()){source.sendSuccess(()->Component.literal("Jardinero: no quedan tareas en el plan actual."),false);return 1;}
+        BlockPos p=nearbySafeGround(level,d,2);
+        if(p==null){source.sendFailure(Component.literal("No encontré suelo seguro a 2–8 bloques. Conservé el plan y la posición; despejá una salida y volvé a usar continuar."));return 0;}
+        restorePending(d);pending.clear();route.clear();routeIndex=0;walking=false;recoveringRoute=false;recoveryAttempts=0;recoveryDelay=0;jobFailures=0;placementDelay=0;sectorX=Integer.MIN_VALUE;
+        visualX=p.getX()+.5;visualY=footHeight(level,p);visualZ=p.getZ()+.5;movementPacketPending=true;savePosition(d);announced=false;
+        // Preserve the scan cache/cursor if this instance was already inspecting.
+        d.active=true;d.auditOnly=false;d.setDirty();updateChunks(level,d);sync(source.getServer(),level,d);
+        source.sendSuccess(()->Component.literal("Jardinero: me moví a "+p.getX()+" "+(p.getY()+1)+" "+p.getZ()+" y continúo el mismo plan. Se conservan las construcciones y el progreso."),false);return 1;
+    }
+    public int skin(CommandSourceStack source,ServerPlayer player){
+        var properties=player.getGameProfile().getProperties().get("textures");if(properties.isEmpty()){source.sendFailure(Component.literal("Ese jugador no tiene una skin disponible."));return 0;}
+        Property skin=properties.iterator().next();ConstructorData d=ConstructorData.get(source.getServer());d.texture=skin.getValue();d.signature=skin.hasSignature()?skin.getSignature():"";d.setDirty();resetActor(source.getServer());
+        source.sendSuccess(()->Component.literal("Skin del Jardinero copiada de "+player.getGameProfile().getName()+"; conserva su nombre y oficio."),false);return 1;
     }
     private BlockPos rawSurface(ServerLevel level,int x,int z){
         if(!level.hasChunkAt(new BlockPos(x,level.getMinBuildHeight(),z)))return null;
@@ -356,7 +447,7 @@ public final class ConstructorBuilder {
         if(++recoveryAttempts<3){recoveryDelay=20;return;}
         d.active=false;d.setDirty();recoveryAttempts=0;
         BlockPos feet=new BlockPos(x,(int)Math.floor(visualY),z);
-        announce(level.getServer(),level,"Pausado: no pude salir de "+x+" "+feet.getY()+" "+z+". Bloque a los pies: "+net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(feet).getBlock())+". Conservé las tareas pendientes; retiren el obstáculo y usen iniciar.");
+        announce(level.getServer(),level,"Pausado: no pude salir de "+x+" "+feet.getY()+" "+z+". Bloque a los pies: "+net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(feet).getBlock())+". Conservé las tareas pendientes; usá /jardinero ir para encontrarme o /jardinero continuar para moverme a un sitio seguro.");
     }
     /** Follow the floor near the previous foot level, including paving, not a roof from the heightmap. */
     private BlockPos navigationStep(ServerLevel level,ConstructorData d,int x,int z,int referenceY){
@@ -378,11 +469,20 @@ public final class ConstructorBuilder {
         }return null;
     }
     private boolean isWalkableGround(ServerLevel level,BlockPos p){if(!navigationHeadroom(level,p))return false;BlockState s=level.getBlockState(p);return s.is(Blocks.GRASS_BLOCK)||s.is(Blocks.DIRT)||s.is(Blocks.DIRT_PATH)||s.is(Blocks.FARMLAND)||s.is(Blocks.STONE)||s.is(Blocks.GRAVEL)||s.is(Blocks.SAND)||s.is(Blocks.PODZOL)||s.is(Blocks.ROOTED_DIRT)||s.is(Blocks.COARSE_DIRT);}
+    private static List<Pair<EquipmentSlot,ItemStack>> gardenerClothes(){
+        List<Pair<EquipmentSlot,ItemStack>> result=new ArrayList<>();
+        ItemStack cap=new ItemStack(Items.LEATHER_HELMET),apron=new ItemStack(Items.LEATHER_CHESTPLATE),boots=new ItemStack(Items.LEATHER_BOOTS);
+        ((DyeableLeatherItem)cap.getItem()).setColor(cap,0xD8BA64);((DyeableLeatherItem)apron.getItem()).setColor(apron,0x487C35);((DyeableLeatherItem)boots.getItem()).setColor(boots,0x68462E);
+        result.add(Pair.of(EquipmentSlot.HEAD,cap));result.add(Pair.of(EquipmentSlot.CHEST,apron));result.add(Pair.of(EquipmentSlot.FEET,boots));result.add(Pair.of(EquipmentSlot.MAINHAND,new ItemStack(Items.IRON_HOE)));return result;
+    }
     private void ensureActor(ServerLevel level){
         if(actor!=null)return;
-        GameProfile profile=new GameProfile(UUID.nameUUIDFromBytes("barttolobots:constructor:v1".getBytes(StandardCharsets.UTF_8)),"Constructor");
+        GameProfile profile=new GameProfile(UUID.nameUUIDFromBytes("barttolobots:constructor:v1".getBytes(StandardCharsets.UTF_8)),"Jardinero");
+        ConstructorData d=ConstructorData.get(level.getServer());
+        if(!d.texture.isBlank())profile.getProperties().put("textures",d.signature.isBlank()?new Property("textures",d.texture):new Property("textures",d.texture,d.signature));
         actor=new FakePlayer(level,profile){ {getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION,(byte)127);} };
         actor.setNoGravity(true);actor.setInvulnerable(true);actor.setPos(visualX,visualY,visualZ);
+        for(var equipment:clothes)actor.setItemSlot(equipment.getFirst(),equipment.getSecond().copy());
     }
     private void sync(MinecraftServer server,ServerLevel level,ConstructorData d){
         ensureActor(level);actor.setPos(visualX,visualY,visualZ);
@@ -390,7 +490,7 @@ public final class ConstructorBuilder {
             boolean close=p.level()==level&&p.distanceToSqr(actor)<=128*128&&p.serverLevel().hasChunkAt(actor.blockPosition());UUID id=p.getUUID();
             if(close&&listed.add(id))p.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(actor)));
             if(close&&visible.add(id)){
-                p.connection.send(new ClientboundAddPlayerPacket(actor));var data=actor.getEntityData().getNonDefaultValues();
+                p.connection.send(new ClientboundAddPlayerPacket(actor));p.connection.send(new ClientboundSetEquipmentPacket(actor.getId(),clothes));var data=actor.getEntityData().getNonDefaultValues();
                 if(data!=null)p.connection.send(new ClientboundSetEntityDataPacket(actor.getId(),data));
                 p.connection.send(new ClientboundRotateHeadPacket(actor,(byte)(actor.getYRot()*256/360)));
             }else if(close&&(movementPacketPending||server.getTickCount()%5==0)){
@@ -410,7 +510,7 @@ public final class ConstructorBuilder {
     }
     private void announce(MinecraftServer server,ServerLevel level,String message){
         if(announced)return;announced=true;
-        for(ServerPlayer p:server.getPlayerList().getPlayers())if(p.level()==level)p.sendSystemMessage(Component.literal("Constructor: ").withStyle(ChatFormatting.GOLD).append(Component.literal(message).withStyle(ChatFormatting.YELLOW)));
+        for(ServerPlayer p:server.getPlayerList().getPlayers())if(p.level()==level)p.sendSystemMessage(Component.literal("Jardinero: ").withStyle(ChatFormatting.GOLD).append(Component.literal(message).withStyle(ChatFormatting.YELLOW)));
     }
     private ServerLevel level(MinecraftServer server,String key){
         ResourceLocation loc=ResourceLocation.tryParse(key);return loc==null?null:server.getLevel(ResourceKey.create(Registries.DIMENSION,loc));

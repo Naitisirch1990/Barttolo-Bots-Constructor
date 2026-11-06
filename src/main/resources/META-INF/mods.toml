@@ -3,10 +3,10 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="barttolobots"
-version="0.5.1-jardinero-test21"
+version="0.5.2-jardinero-test22"
 displayName="Barttolo Bots — RingWorld"
 displayTest="IGNORE_SERVER_VERSION"
-description='''Asistente fijo y Constructor visible para mejorar gradualmente aldeas. Solo servidor.'''
+description='''Asistente fijo y Jardinero autónomo para mejorar gradualmente aldeas. Solo servidor.'''
 [[dependencies.barttolobots]]
 modId="forge"
 mandatory=true

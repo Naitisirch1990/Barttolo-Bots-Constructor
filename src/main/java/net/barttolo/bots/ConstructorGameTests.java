@@ -133,4 +133,68 @@ public class ConstructorGameTests {
         h.assertTrue(level.getBlockState(clear.above()).is(BlockTags.FLOWERS)&&d.reviewPending&&!d.finished&&d.retryTasks.size()==1,"do reachable work before reporting inaccessible decoration");
         ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));h.assertTrue(restored.reviewPending&&restored.retryTasks.size()==1,"pending decoration must survive a restart");h.succeed();
     }
+
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void continueRelocatesAndPreservesTheOriginalPartialPlan(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos c=center(h,2560);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder();
+        var source=level.getServer().createCommandSourceStack().withPermission(4).withLevel(level).withPosition(net.minecraft.world.phys.Vec3.atBottomCenterOf(c.above()));
+        ConstructorData d=ConstructorData.get(level.getServer());
+        try{
+            b.create(source,32);d.scanning=false;d.auditOnly=false;d.tasks.clear();d.retryTasks.clear();
+            d.addTask(ConstructorBuilder.TUFT,c.getX()-6,c.getY(),c.getZ());d.taskCursor=1;d.completedJobs=1;
+            d.addTask(ConstructorBuilder.LAMP,c.getX(),c.getY(),c.getZ());d.task(1).putBoolean("started",true);
+            worker(b,c.east(4));call(b,"prepareTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+            for(int i=0;i<12;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+            h.assertTrue(d.placed>0&&d.taskCursor==1,"start a real lamp before simulating a blockage");
+            BlockPos bloom=c.offset(-6,0,-6);CompoundTag retry=new CompoundTag();retry.putInt("type",ConstructorBuilder.FLOWER);retry.putInt("x",bloom.getX());retry.putInt("y",bloom.getY());retry.putInt("z",bloom.getZ());d.retryTasks.add(retry);d.retryTasks.add(retry.copy());d.reviewPending=true;
+            level.setBlockAndUpdate(c.east(4).above(),Blocks.STONE_BRICKS.defaultBlockState());
+            int placed=d.placed;h.assertTrue(b.resume(source)==1,"continuar must relocate from blocked feet");
+            h.assertTrue(d.tasks.size()==3&&d.taskCursor==1&&d.completedJobs==1&&d.placed==placed&&d.retryTasks.isEmpty()&&!d.reviewPending,"keep completed prefix, partial lamp and unique pending flower without replanning");
+            h.assertTrue(d.positionSaved&&Math.max(Math.abs(d.workerX-(c.getX()+4.5)),Math.abs(d.workerZ-(c.getZ()+.5)))>=2,"move the gardener at least two blocks");
+            ConstructorData copy=ConstructorData.load(d.save(new CompoundTag()));ConstructorBuilder afterRestart=new ConstructorBuilder();
+            h.assertTrue((boolean)call(afterRestart,"ensurePosition",new Class[]{ServerLevel.class,ConstructorData.class},level,copy)&&copy.workerX==d.workerX&&copy.workerY==d.workerY&&copy.workerZ==d.workerZ,"saved position survives reload");
+            h.assertTrue(copy.taskCursor==1&&copy.tasks.size()==3&&copy.task(1).getBoolean("started"),"partial plan survives reload");
+            for(int i=0;i<15000&&!d.finished&&!d.reviewPending;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+            h.assertTrue(d.finished&&d.retryTasks.isEmpty()&&d.completedJobs==3&&level.getBlockState(bloom.above()).is(BlockTags.FLOWERS),"complete the same lamp and pending flower after rescue");
+            int lamps=0;for(int i=0;i<d.memory.size();i++)if(d.memory.getCompound(i).getInt("type")==ConstructorBuilder.LAMP)lamps++;
+            h.assertTrue(lamps==1,"rescuing a partial lamp must record exactly one lamp");
+            var dispatcher=level.getServer().getCommands().getDispatcher();
+            for(String command:new String[]{"jardinero ir","jardinero continuar","constructor continuar","constructor ir"}){
+                var parse=dispatcher.parse(command,source);h.assertTrue(parse.getExceptions().isEmpty()&&!parse.getReader().canRead(),"new and legacy command names must parse: "+command);
+            }
+            var denied=dispatcher.parse("jardinero continuar",source.withPermission(0));h.assertTrue(!denied.getExceptions().isEmpty()||denied.getReader().canRead(),"gardener management remains OP-only");
+            boolean consoleRejected=false;try{b.teleportTo(source);}catch(com.mojang.brigadier.exceptions.CommandSyntaxException expected){consoleRejected=true;}h.assertTrue(consoleRejected,"ir requires a player, not console teleport");
+            call(b,"ensureActor",new Class[]{ServerLevel.class},level);Field actor=ConstructorBuilder.class.getDeclaredField("actor");actor.setAccessible(true);var npc=(net.minecraftforge.common.util.FakePlayer)actor.get(b);
+            h.assertTrue(npc.getGameProfile().getName().equals("Jardinero")&&npc.getMainHandItem().is(Items.IRON_HOE),"name and gardening outfit are applied to the visible NPC");
+        }finally{b.cancel(source);}h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void rescueWithoutSafeGroundLeavesProgressIntact(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos c=center(h,2816);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder();
+        var source=level.getServer().createCommandSourceStack().withPermission(4).withLevel(level).withPosition(net.minecraft.world.phys.Vec3.atBottomCenterOf(c.above()));
+        try{
+            b.create(source,32);ConstructorData d=ConstructorData.get(level.getServer());d.scanning=false;d.auditOnly=false;d.tasks.clear();d.addTask(ConstructorBuilder.FLOWER,c.getX()+12,c.getY(),c.getZ());d.reviewPending=true;
+            for(int dx=-8;dx<=8;dx++)for(int dz=-8;dz<=8;dz++)for(int dy=1;dy<=3;dy++)level.setBlockAndUpdate(c.offset(dx,dy,dz),Blocks.STONE_BRICKS.defaultBlockState());
+            double x=d.workerX,z=d.workerZ;h.assertTrue(b.resume(source)==0&&d.tasks.size()==1&&d.taskCursor==0&&d.reviewPending&&!d.active&&d.workerX==x&&d.workerZ==z,"failed rescue must not erase tasks, move to a roof, restart or activate work");
+        }finally{b.cancel(source);}h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=600)
+    public static void residentTicketsKeepRemoteWorkAvailableAndReleaseOnlyOurTickets(GameTestHelper h)throws Exception{
+        ServerLevel level=h.getLevel();BlockPos c=center(h,4096);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder(),other=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.active=true;d.addTask(ConstructorBuilder.FLOWER,c.getX()+4,c.getY(),c.getZ());worker(b,c);
+        call(b,"updateChunks",new Class[]{ServerLevel.class,ConstructorData.class},level,d);call(other,"updateChunks",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
+        Field tickets=ConstructorBuilder.class.getDeclaredField("heldChunks");tickets.setAccessible(true);int count=((Set<?>)tickets.get(b)).size();
+        h.assertTrue(count>0&&count<=16,"32-block assignment holds only its bounded survey halo");
+        h.assertTrue(level.getServer().getPlayerList().getPlayers().stream().noneMatch(p->p.distanceToSqr(c.getX(),c.getY(),c.getZ())<128*128),"remote fixture must have no nearby players");
+        // Wait past vanilla's temporary getChunk ticket; neither NPC is a logged-in player.
+        h.runAfterDelay(360,()->{
+            try{
+                call(b,"releaseChunks",new Class[]{});
+                h.assertTrue(((Set<?>)tickets.get(b)).isEmpty()&&((Set<?>)tickets.get(other)).size()==count,"releasing one gardener must not release another owner's tickets");
+                h.assertTrue(level.hasChunkAt(c),"the remote map must still be available after temporary load tickets expire");
+                for(int i=0;i<3000&&!d.finished&&!d.reviewPending;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
+                h.assertTrue(d.finished&&level.getBlockState(c.east(4).above()).is(BlockTags.FLOWERS),"remote gardening must complete with no players around");
+                call(other,"releaseChunks",new Class[]{});h.assertTrue(((Set<?>)tickets.get(other)).isEmpty(),"all private tickets are released at completion");h.succeed();
+            }catch(Exception e){throw new RuntimeException(e);}finally{try{call(b,"releaseChunks",new Class[]{});call(other,"releaseChunks",new Class[]{});}catch(Exception e){throw new RuntimeException(e);}}
+        });
+    }
 }

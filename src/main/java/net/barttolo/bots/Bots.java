@@ -45,7 +45,7 @@ public final class Bots {
         HostData.get(e.getServer());
         ConstructorData.get(e.getServer());
     }
-    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());welcomeAt.clear();replyAt.clear();}
+    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());welcomeAt.clear();replyAt.clear();}
     @SubscribeEvent public void login(PlayerEvent.PlayerLoggedInEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!(p instanceof FakePlayer)){
             visual.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
@@ -140,16 +140,20 @@ public final class Bots {
                     try{Guide next=GuideConfig.load();guide=next;visual.clear(ctx.getSource().getServer());ctx.getSource().sendSuccess(()->Component.literal("Guía recargada correctamente."),false);return 1;}
                     catch(Exception ex){LOG.warn("No se recargó la guía",ex);ctx.getSource().sendFailure(Component.literal("No se recargó: "+ex.getMessage()+". Se conserva la guía anterior."));return 0;}
                 }))));
-        dispatcher.register(Commands.literal("constructor").requires(src->src.hasPermission(2))
+        var gardener=dispatcher.register(Commands.literal("jardinero").requires(src->src.hasPermission(2))
             .then(Commands.literal("crear")
                 .executes(ctx->constructor.create(ctx.getSource(),64))
                 .then(Commands.argument("ancho",IntegerArgumentType.integer(32,256))
                     .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
+            .then(Commands.literal("ir").executes(ctx->constructor.teleportTo(ctx.getSource())))
+            .then(Commands.literal("continuar").executes(ctx->constructor.resume(ctx.getSource())))
+            .then(Commands.literal("piel").then(Commands.argument("jugador",EntityArgument.player()).executes(ctx->constructor.skin(ctx.getSource(),EntityArgument.getPlayer(ctx,"jugador")))))
             .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
             .then(Commands.literal("pausar").executes(ctx->constructor.pause(ctx.getSource())))
             .then(Commands.literal("auditar").executes(ctx->constructor.audit(ctx.getSource())))
             .then(Commands.literal("estado").executes(ctx->constructor.status(ctx.getSource())))
             .then(Commands.literal("cancelar").executes(ctx->constructor.cancel(ctx.getSource()))));
+        dispatcher.register(Commands.literal("constructor").requires(src->src.hasPermission(2)).redirect(gardener));
     }
     private static int place(net.minecraft.commands.CommandSourceStack source,Vec3 pos){
         if(!Double.isFinite(pos.x)||!Double.isFinite(pos.y)||!Double.isFinite(pos.z)
