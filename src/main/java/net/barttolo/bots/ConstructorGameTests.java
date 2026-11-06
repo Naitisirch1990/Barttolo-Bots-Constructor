@@ -190,6 +190,7 @@ public class ConstructorGameTests {
             try{
                 call(b,"releaseChunks",new Class[]{});
                 h.assertTrue(((Set<?>)tickets.get(b)).isEmpty()&&((Set<?>)tickets.get(other)).size()==count,"releasing one gardener must not release another owner's tickets");
+                h.assertTrue((boolean)call(other,"chunksReady",new Class[]{}),"all assigned chunks must be ready before classifying navigation failures");
                 h.assertTrue(level.hasChunkAt(c),"the remote map must still be available after temporary load tickets expire");
                 for(int i=0;i<3000&&!d.finished&&!d.reviewPending;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
                 h.assertTrue(d.finished&&level.getBlockState(c.east(4).above()).is(BlockTags.FLOWERS),"remote gardening must complete with no players around");

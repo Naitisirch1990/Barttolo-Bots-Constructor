@@ -102,6 +102,10 @@ public final class ConstructorBuilder {
                 ChunkPos chunk=new ChunkPos(x,z);level.getChunkSource().addRegionTicket(GARDEN_TICKET,chunk,0,ticketOwner);heldChunks.add(chunk.toLong());
             }
     }
+    private boolean chunksReady(){
+        if(ticketLevel==null)return false;
+        for(long key:heldChunks){ChunkPos chunk=new ChunkPos(key);if(!ticketLevel.hasChunkAt(new BlockPos(chunk.getMinBlockX(),ticketLevel.getMinBuildHeight(),chunk.getMinBlockZ())))return false;}return true;
+    }
     private void releaseChunks(){
         if(ticketLevel!=null)for(long key:heldChunks)ticketLevel.getChunkSource().removeRegionTicket(GARDEN_TICKET,new ChunkPos(key),0,ticketOwner);
         heldChunks.clear();ticketLevel=null;
@@ -129,7 +133,7 @@ public final class ConstructorBuilder {
         updateChunks(level,d);
         if(!planLoaded){pending.clear();route.clear();walking=false;planLoaded=true;if(d.scanning){d.cursor=0;surveyFloors.clear();obstacles.clear();}}
         if(!ensurePosition(level,d))return;
-        if(d.scanning&&(d.active||d.auditOnly))scanBatch(level,d);else if(d.active&&!d.scanning)workTick(server,level,d);
+        if(d.scanning&&(d.active||d.auditOnly))scanBatch(level,d);else if(d.active&&!d.scanning&&chunksReady())workTick(server,level,d);
         savePosition(d);updateChunks(level,d);sync(server,level,d);
     }
     /** Search beside the saved feet, not the heightmap (which may be a roof). */
