@@ -29,6 +29,11 @@ jobs:
           mkdir -p build/road-checks
           javac -d build/road-checks src/main/java/net/barttolo/bots/RoadLayout.java tests/RoadLayoutChecks.java
           java -cp build/road-checks RoadLayoutChecks
+      - name: Check five-block road corridor
+        run: |
+          mkdir -p build/corridor-checks
+          javac -d build/corridor-checks src/main/java/net/barttolo/bots/RoadCorridor.java tests/RoadCorridorChecks.java
+          java -cp build/corridor-checks RoadCorridorChecks
       - name: Build Forge mod
         run: chmod +x gradlew && ./gradlew build -x test
       - name: Check constructor in Forge server

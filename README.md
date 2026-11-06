@@ -1,3 +1,12 @@
+# Barttolo Bots — Constructor 0.1.0 en desarrollo
+
+El nuevo oficio se utiliza con `/bot constructor`. Asistente y Jardinero conservan sus comandos.
+
+Estado: código experimental sin compilación Forge confirmada. No hay JAR nuevo verificado.
+Consultar [alcance, comandos y límites](docs/CONSTRUCTOR-0.1.0.md).
+
+---
+
 # Barttolo Jardinero 0.5.1 / test21
 
 - Farolas cada 12 bloques. La inspección prueba las 144 alineaciones posibles y elige la cuadrícula de 12 con más sitios válidos, también en parcelas pequeñas. Omite posiciones junto a caminos o construcciones.
