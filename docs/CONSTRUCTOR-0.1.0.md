@@ -1,4 +1,4 @@
-# Constructor 0.1.0 — prototipo pendiente de verificación
+# Constructor 0.1.0 — primera versión de prueba
 
 Integrado en Barttolo Bots conservando Asistente, Jardinero y el alias histórico `/constructor`.
 El nuevo oficio usa `/bot constructor` para evitar conflictos.
@@ -44,10 +44,22 @@ al bloque colocado no puede distinguirse de la colocación original.
 Deshacer no puede detectar todas las protecciones externas y requiere prueba de integración.
 No ejecutar en el mundo principal hasta superar pruebas en copia descartable.
 
-Compilación local bloqueada al descargar Gradle por restricciones de red.
-GitHub Actions deberá confirmar compilación; la compilación por sí sola no demuestra jugabilidad.
+## Instalación
 
-La ejecución de las pruebas unitarias locales también está bloqueada: hay Java 17 JRE,
-pero no está instalado `javac`. Se añadió RoadCorridorChecks al flujo de CI; todavía no se ejecutó.
-La revisión automática impidió publicar esta rama en el repositorio público porque el
-pedido original requiere un destino privado. No se ejecutó CI para estos cambios.
+Minecraft Java 1.20.1, Forge 47.4.10, Java 17. Mod de servidor.
+Detener el servidor y reemplazar el JAR anterior de Barttolo Bots por este JAR integrado.
+No instalar ambos: comparten el identificador barttolobots. Los comandos anteriores de
+Asistente y Jardinero se conservan; la nueva obra usa su propio archivo de datos.
+Probar primero en una copia del mundo, en un corredor plano de unos 10–20 bloques.
+No requiere recursos del inventario. No genera botín ni entrega los materiales al NPC.
+
+## Validación
+
+El flujo de GitHub Actions compila el mod y ejecuta pruebas en un servidor Forge dedicado
+antes de permitir publicar una versión de prueba. Incluye comprobaciones de geometría,
+ancho, cuatro direcciones, límites, construcción por presupuesto, pausa/recarga del avance,
+restauración del terreno, rechazo de agua y conflictos al deshacer. También ejecuta las
+pruebas ya existentes del Asistente y Jardinero.
+Una publicación automatizada confirma que ese commit superó esos controles; no confirma
+rendimiento ni compatibilidad en tu mundo RingWorld. Esa prueba de integración sigue pendiente.
+La compilación local está limitada por acceso a Gradle y ausencia de javac; se utiliza CI.
