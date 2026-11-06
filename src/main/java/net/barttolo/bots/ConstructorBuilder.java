@@ -123,6 +123,7 @@ public final class ConstructorBuilder {
         BlockPos p=findSafeStart(level,d);if(p==null)return false;
         visualX=p.getX()+.5;visualY=footHeight(level,p);visualZ=p.getZ()+.5;visualInitialized=true;savePosition(d);return true;
     }
+    public void forget(UUID viewer){visible.remove(viewer);listed.remove(viewer);}
     public void shutdown(MinecraftServer server){
         savePosition(ConstructorData.get(server));releaseChunks();resetActor(server);visualInitialized=false;planLoaded=false;
         pending.clear();route.clear();walking=false;surveyFloors.clear();obstacles.clear();

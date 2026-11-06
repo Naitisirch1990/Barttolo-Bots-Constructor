@@ -163,6 +163,10 @@ public class ConstructorGameTests {
                 var parse=dispatcher.parse(command,source);h.assertTrue(parse.getExceptions().isEmpty()&&!parse.getReader().canRead(),"new and legacy command names must parse: "+command);
             }
             var denied=dispatcher.parse("jardinero continuar",source.withPermission(0));h.assertTrue(!denied.getExceptions().isEmpty()||denied.getReader().canRead(),"gardener management remains OP-only");
+            var visitor=new net.minecraft.server.level.ServerPlayer(level.getServer(),level,new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(),"GardenVisitor"));
+            visitor.connection=new net.minecraft.server.network.ServerGamePacketListenerImpl(level.getServer(),new net.minecraft.network.Connection(net.minecraft.network.protocol.PacketFlow.SERVERBOUND),visitor);
+            visitor.setPos(c.getX()+1000,c.getY()+1,c.getZ()+1000);
+            h.assertTrue(b.teleportTo(source.withEntity(visitor))==1&&visitor.distanceToSqr(d.workerX,d.workerY,d.workerZ)<150,"ir must teleport a remote player next to the persisted NPC");
             boolean consoleRejected=false;try{b.teleportTo(source);}catch(com.mojang.brigadier.exceptions.CommandSyntaxException expected){consoleRejected=true;}h.assertTrue(consoleRejected,"ir requires a player, not console teleport");
             call(b,"ensureActor",new Class[]{ServerLevel.class},level);Field actor=ConstructorBuilder.class.getDeclaredField("actor");actor.setAccessible(true);var npc=(net.minecraftforge.common.util.FakePlayer)actor.get(b);
             h.assertTrue(npc.getGameProfile().getName().equals("Jardinero")&&npc.getMainHandItem().is(Items.IRON_HOE),"name and gardening outfit are applied to the visible NPC");

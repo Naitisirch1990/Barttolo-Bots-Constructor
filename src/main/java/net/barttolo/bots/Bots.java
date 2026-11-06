@@ -48,14 +48,14 @@ public final class Bots {
     @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());welcomeAt.clear();replyAt.clear();}
     @SubscribeEvent public void login(PlayerEvent.PlayerLoggedInEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!(p instanceof FakePlayer)){
-            visual.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
+            visual.forget(p.getUUID());constructor.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
         }
     }
     @SubscribeEvent public void logout(PlayerEvent.PlayerLoggedOutEvent e){
-        UUID id=e.getEntity().getUUID();visual.forget(id);welcomeAt.remove(id);replyAt.remove(id);
+        UUID id=e.getEntity().getUUID();visual.forget(id);constructor.forget(id);welcomeAt.remove(id);replyAt.remove(id);
     }
-    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());}
-    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent e){
         if(e.phase!=TickEvent.Phase.END)return;
         MinecraftServer s=e.getServer();int now=s.getTickCount();
