@@ -112,6 +112,22 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(job.roads==21&&job.bridges==0&&job.tunnels==0,"Frozen level ground should remain a road");
         },job->h.assertTrue(job.cursor==job.tasks.size(),"Finish the frozen-surface route"));
     }
+    @GameTest(template="empty",timeoutTicks=1800)
+    public static void spansDeepTwentyBlockRavineWithSupportedBridge(GameTestHelper h){
+        BlockPos p=ground(h,6400);var l=h.getLevel();
+        for(int x=3;x<=17;x++)for(int z=-4;z<=4;z++){
+            for(int y=-1;y>=-23;y--)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-24,z),Blocks.STONE.defaultBlockState());
+        }
+        var d=data(h,p.above(),p.east(20).above());var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"Keep the direct twenty-block crossing");
+            h.assertTrue(job.bridges>=10,"Classify the unsupported ravine span as a bridge");
+        },job->{
+            h.assertTrue(l.getBlockState(p.offset(10,0,0)).isSolid(),"Bridge deck crosses the ravine");
+            h.assertTrue(l.getBlockState(p.offset(10,-24,0)).is(Blocks.STONE),"Keep the ravine bed intact");
+        });
+    }
     @GameTest(template="empty",timeoutTicks=1600)
     public static void lightsPreserveTunnelClearanceAndAreJournaled(GameTestHelper h){
         BlockPos p=ground(h,5800);var l=h.getLevel();

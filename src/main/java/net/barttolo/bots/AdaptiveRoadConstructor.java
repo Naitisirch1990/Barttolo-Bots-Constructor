@@ -24,7 +24,7 @@ import net.minecraftforge.event.level.BlockEvent;
 
 /** Bounded, incremental terrain-aware road search. All world reads stay on the server thread. */
 public final class AdaptiveRoadConstructor {
-    static final int MAX_NODES=16000,MAX_EDITS=120000,MAX_DISTANCE=2000;
+    static final int MAX_NODES=16000,MAX_SHORT_ROUTE_NODES=512,MAX_BRIDGE_SUPPORT=32,MAX_EDITS=120000,MAX_DISTANCE=2000;
     static final int FLAT_BETWEEN_STEPS=3;
     private static final Set<UUID> ACTIVE_WORKERS=new HashSet<>();
     private static final TicketType<Long> TICKET=TicketType.create("barttolo_adaptive_road",Long::compareTo,40);
@@ -193,18 +193,19 @@ public final class AdaptiveRoadConstructor {
             BlockPos ceiling=floor.above(6);if(!l.getFluidState(ceiling).isEmpty()||l.getBlockEntity(ceiling)!=null)return null;
             if(l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
             int n=0;BlockPos support=floor.below();
-            while(!bearing(l,support)&&n<12){
+            while(!bearing(l,support)&&n<MAX_BRIDGE_SUPPORT){
                 if(!editable(l,support)&&!l.getBlockState(support).is(Blocks.WATER))return null;
                 if(!l.getFluidState(support).isEmpty()&&!l.getBlockState(support).is(Blocks.WATER))return null;
                 support=support.below();n++;
             }
-            if(n>=12||l.getBlockEntity(support)!=null||l.getBlockState(support).is(Blocks.BEDROCK))return null;
+            if(n>=MAX_BRIDGE_SUPPORT||l.getBlockEntity(support)!=null||l.getBlockState(support).is(Blocks.BEDROCK))return null;
             depth=Math.max(depth,n);if(n>1||l.getBlockState(floor).isAir())elevated=true;fill+=n;
         }
         return new Survey(elevated?1:roof&&cut>0?2:0,cut,fill,depth);
     }
     void searchTick(MinecraftServer s,ServerLevel l,Data d){
         int[][] dirs={{1,0},{0,1},{-1,0},{0,-1}};int[] grades={0,1,-1};
+        int expansionLimit=heuristic(d.a,d.b)<=64?MAX_SHORT_ROUTE_NODES:MAX_NODES;
         // Check short, level straight routes first. This avoids exploring thousands of
         // alternatives for the common case, and gives icy/rough biomes a fast verdict.
         if(search.directPossible){
@@ -229,7 +230,11 @@ public final class AdaptiveRoadConstructor {
                     Node n=search.open.poll();if(n.cost<=search.best.getOrDefault(n.key,Double.MAX_VALUE)){search.current=n;break;}
                 }
                 if(search.current==null){halt(s,d,"No encontró una ruta segura en el área explorada.");return;}
-                if(++search.expanded>MAX_NODES){halt(s,d,"Límite de exploración alcanzado; probá puntos intermedios.");return;}
+                if(++search.expanded>expansionLimit){
+                    halt(s,d,expansionLimit==MAX_SHORT_ROUTE_NODES
+                        ?"No encontró un trazado seguro dentro del límite para este tramo corto. Probá marcar A/B más cerca del borde del obstáculo."
+                        :"Límite de exploración alcanzado; probá puntos intermedios.");return;
+                }
                 Node n=search.current;
                 if(n.key.pos.equals(d.b)){
                     ArrayList<Node> nodes=new ArrayList<>();for(Node p=n;p!=null;p=p.parent)nodes.add(p);Collections.reverse(nodes);
@@ -304,7 +309,8 @@ public final class AdaptiveRoadConstructor {
                 // Roads and ramps get shallow foundations; bridges get piers every five sections and at ends.
                 if(kind!=1||i%5==0||i==d.route.size()-1){
                     BlockPos support=floor.below();int n=0;
-                    while(!bearing(l,support)&&n++<12){
+                    int maxSupport=kind==1?MAX_BRIDGE_SUPPORT:12;
+                    while(!bearing(l,support)&&n++<maxSupport){
                         if(!put(support,Blocks.STONE_BRICKS.defaultBlockState())){halt(s,d,"Demasiados cambios en el soporte.");return;}support=support.below();
                     }
                 }
