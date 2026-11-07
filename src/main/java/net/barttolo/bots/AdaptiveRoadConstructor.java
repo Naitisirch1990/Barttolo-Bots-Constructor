@@ -157,7 +157,7 @@ public final class AdaptiveRoadConstructor {
         d.b=point;begin(d);return null;
     }
     void resume(Data d){
-        if(d.tasks.isEmpty()){begin(d);d.resumeAfterPlan=true;}
+        if(d.tasks.isEmpty()||d.state.equals("RECHAZADO")){begin(d);d.resumeAfterPlan=true;}
         else{d.state="CONSTRUYENDO";d.report="Obra reanudada.";d.setDirty();}
     }
     static boolean archiveFinished(Data d){
