@@ -1,0 +1,3 @@
+# Constructor 0.3.11 — pendiente adaptable
+
+El trazado directo acepta desniveles de hasta un bloque vertical por paso horizontal. Conserva descansos de tres secciones cuando hay espacio; si el desnivel requiere más pendiente, reduce el intervalo a tres, dos o un paso. El caso de 104 bloques de recorrido y 30 de descenso usa escaleras cada tres pasos y llega a la altura exacta de B. Se conservan el plazo de 60 segundos, cuatro comandos, historial y eliminación de entidades bloqueantes. Los desniveles superiores a un bloque por paso siguen requiriendo un rodeo y pueden agotar la búsqueda. Reemplazar el JAR solo en el servidor, con este detenido, y continuar o recrear el proyecto rechazado.

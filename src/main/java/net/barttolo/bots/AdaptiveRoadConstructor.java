@@ -230,7 +230,7 @@ public final class AdaptiveRoadConstructor {
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
             int distance=Math.max(Math.abs(d.b.getX()-d.a.getX()),Math.abs(d.b.getZ()-d.a.getZ()));
-            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)){
+            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=distance){
                 BlockPos p=new BlockPos(d.a.getX()+(int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),directY(d,search.directIndex,distance),d.a.getZ()+(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
@@ -286,9 +286,10 @@ public final class AdaptiveRoadConstructor {
     }
     static int directY(Data d,int step,int length){
         int rise=d.b.getY()-d.a.getY();
-        // Rise near the low bank, descend near the far bank; keep the crossing high.
-        if(rise>=0)return d.a.getY()+Math.min(rise,(step+3)/4);
-        return d.b.getY()+Math.min(-rise,(length-step+3)/4);
+        // Adapt stair spacing to the requested rise/run, keeping each step at one block.
+        int spacing=rise==0?4:Math.max(1,Math.min(4,length/Math.abs(rise)));
+        if(rise>=0)return d.a.getY()+Math.min(rise,(step+spacing-1)/spacing);
+        return d.b.getY()+Math.min(-rise,(length-step+spacing-1)/spacing);
     }
     static BlockPos columnFoot(Data d,int x,int z){
         int dx=d.b.getX()-d.a.getX(),dz=d.b.getZ()-d.a.getZ();

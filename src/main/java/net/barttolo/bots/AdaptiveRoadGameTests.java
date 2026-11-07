@@ -52,6 +52,44 @@ public final class AdaptiveRoadGameTests {
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
+    static void steepDescendingCrossing(GameTestHelper h,boolean oblique){
+        var l=h.getLevel();int offset=oblique?14204:13804;
+        BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
+        BlockPos p=new BlockPos(origin.getX(),160,offset*2);
+        for(int x=-4;x<=4;x++)for(int z=-108;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.STONE.defaultBlockState());
+            for(int y=0;y<=36;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        if(oblique)for(int x=-4;x<=15;x++)for(int z=-108;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.STONE.defaultBlockState());
+            for(int y=0;y<=36;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p.above(30),p.offset(oblique?11:0,0,-104));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==105,"Plan the direct 104-block crossing with thirty blocks of descent");
+            h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(104).getLong("pos")).equals(job.b),"Preserve requested endpoint heights");
+            int drops=0,last=-100;
+            for(int i=1;i<job.route.size();i++){
+                int delta=BlockPos.of(job.route.getCompound(i-1).getLong("pos")).getY()-BlockPos.of(job.route.getCompound(i).getLong("pos")).getY();
+                h.assertTrue(delta>=0&&delta<=1,"Every step descends by at most one block");
+                if(delta>0){h.assertTrue(i-last>=3,"Thirty-block descent uses spaced stairs");last=i;drops++;}
+            }
+            h.assertTrue(drops==30,"Reach all thirty levels of descent");
+        },job->{
+            int stairs=0;
+            for(int i=0;i<job.route.size();i++){
+                BlockPos foot=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                h.assertTrue(!l.getBlockState(foot.below()).getCollisionShape(l,foot.below()).isEmpty(),"Descending deck stays continuous");
+                h.assertTrue(l.getBlockState(foot).isAir(),"Descending centerline stays clear");
+                if(l.getBlockState(foot.below()).getBlock() instanceof StairBlock)stairs++;
+            }
+            h.assertTrue(stairs>=30,"Build a stair at every descent");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void thirtyBlockDescentOver104Blocks(GameTestHelper h){steepDescendingCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void obliqueThirtyBlockDescentOver104Blocks(GameTestHelper h){steepDescendingCrossing(h,true);}
     static void slopingObliqueCrossing(GameTestHelper h,boolean descending){
         BlockPos p=ground(h,descending?13004:12604);var l=h.getLevel();
         for(int x=-4;x<=153;x++)for(int z=-4;z<=15;z++){
