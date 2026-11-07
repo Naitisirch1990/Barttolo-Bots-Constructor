@@ -179,11 +179,14 @@ public final class AdaptiveRoadConstructor {
         for(long key:wanted){tickets.add(key);l.getChunkSource().addRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);}
     }
     boolean loaded(ServerLevel l,BlockPos p){return l.hasChunkAt(p.offset(-3,0,-3))&&l.hasChunkAt(p.offset(3,0,3))&&l.hasChunkAt(p.offset(-3,0,3))&&l.hasChunkAt(p.offset(3,0,-3));}
+    static boolean waterTerrain(BlockState b){return b.is(Blocks.WATER)||b.is(Blocks.SEAGRASS)||b.is(Blocks.TALL_SEAGRASS)||b.is(Blocks.KELP)||b.is(Blocks.KELP_PLANT);}
     Survey survey(ServerLevel l,BlockPos foot){
         if(foot.getY()<l.getMinBuildHeight()+14||foot.getY()+6>=l.getMaxBuildHeight())return null;
         int cut=0,fill=0,depth=0;boolean elevated=false,roof=false;
         for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++){
-            BlockPos floor=foot.offset(x,-1,z);if(!editable(l,floor)||!l.getFluidState(floor).isEmpty())return null;
+            BlockPos floor=foot.offset(x,-1,z);boolean water=waterTerrain(l.getBlockState(floor));
+            if(!water&&(!editable(l,floor)||!l.getFluidState(floor).isEmpty()))return null;
+            if(water)elevated=true;
             for(int h=1;h<=5;h++){
                 BlockPos q=floor.above(h);if(!editable(l,q)||!l.getFluidState(q).isEmpty())return null;
                 // Never open a dry tunnel into adjacent liquid.
@@ -194,8 +197,8 @@ public final class AdaptiveRoadConstructor {
             if(l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
             int n=0;BlockPos support=floor.below();
             while(!bearing(l,support)&&n<MAX_BRIDGE_SUPPORT){
-                if(!editable(l,support)&&!l.getBlockState(support).is(Blocks.WATER))return null;
-                if(!l.getFluidState(support).isEmpty()&&!l.getBlockState(support).is(Blocks.WATER))return null;
+                if(!editable(l,support)&&!waterTerrain(l.getBlockState(support)))return null;
+                if(!l.getFluidState(support).isEmpty()&&!waterTerrain(l.getBlockState(support)))return null;
                 support=support.below();n++;
             }
             if(n>=MAX_BRIDGE_SUPPORT||l.getBlockEntity(support)!=null||l.getBlockState(support).is(Blocks.BEDROCK))return null;
@@ -211,8 +214,8 @@ public final class AdaptiveRoadConstructor {
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
             int distance=Math.abs(d.b.getX()-d.a.getX())+Math.abs(d.b.getZ()-d.a.getZ());
-            if(distance>0&&distance<=128&&d.a.getY()==d.b.getY()&&(dx==0||dz==0)){
-                BlockPos p=d.a.offset(dx*search.directIndex,0,dz*search.directIndex);window(l,p);if(!loaded(l,p))return;
+            if(distance>0&&distance<=128&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&(dx==0||dz==0)){
+                BlockPos p=d.a.offset(dx*search.directIndex,(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),dz*search.directIndex);window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
                 if(v.kind<0){search.directPossible=false;d.route.clear();}
@@ -317,7 +320,7 @@ public final class AdaptiveRoadConstructor {
             }
             if(kind==1)for(int side:new int[]{-3,3}){
                 BlockPos edge=foot.offset(-dz*side,-1,dx*side);BlockPos rail=edge.above();
-                if(!editable(l,edge)||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
+                if((!editable(l,edge)&&!waterTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
                 if(!put(edge,pavement(l,edge))||!put(rail,Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Barandilla cruza otra sección.");return;}
             }
             recipeIndex++;d.setDirty();return;
@@ -389,7 +392,7 @@ public final class AdaptiveRoadConstructor {
     }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
-        if(before.is(Blocks.WATER)&&!after.isAir())return true;
+        if(waterTerrain(before)&&!after.isAir())return true;
         return editable(l,p)&&l.getFluidState(p).isEmpty();
     }
     BlockState read(ServerLevel l,CompoundTag t,String key){return NbtUtils.readBlockState(l.holderLookup(Registries.BLOCK),t.getCompound(key));}

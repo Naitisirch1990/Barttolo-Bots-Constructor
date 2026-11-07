@@ -40,6 +40,26 @@ public final class AdaptiveRoadGameTests {
         });
     }
     @GameTest(template="empty",timeoutTicks=1600)
+    public static void riverAtDeckHeightWithAquaticPlantsAndOneBlockRise(GameTestHelper h){
+        BlockPos p=ground(h,6804);var l=h.getLevel();
+        for(int x=2;x<=6;x++)for(int z=-4;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-3,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.WATER.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+        }
+        l.setBlockAndUpdate(p.offset(4,-2,0),Blocks.SEAGRASS.defaultBlockState());
+        for(int x=7;x<=12;x++)for(int z=-4;z<=4;z++)l.setBlockAndUpdate(p.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
+        var d=data(h,p,p.offset(8,1,0));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.bridges>0&&job.route.size()==9,"Direct river crossing with different bank heights"),
+            job->{
+                h.assertTrue(job.cursor==job.tasks.size(),"Finish the river crossing");
+                job.state="DESHACIENDO";job.undo=job.changes.size()-1;
+                for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+                h.assertTrue(job.changes.isEmpty(),"Undo the complete bridge");
+                h.assertTrue(l.getBlockState(p.offset(3,-1,0)).is(Blocks.WATER),"Restore river water");
+            });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
     public static void findsOffAxisRouteAcrossDifferentHeightsAndExcavates(GameTestHelper h){
         BlockPos p=ground(h,5000);var l=h.getLevel();
         for(int x=5;x<=15;x++)for(int z=-7;z<=10;z++){
