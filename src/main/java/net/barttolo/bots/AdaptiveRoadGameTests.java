@@ -11,7 +11,7 @@ import net.minecraftforge.gametest.*;
 @PrefixGameTestTemplate(false)
 public final class AdaptiveRoadGameTests {
     static BlockPos ground(GameTestHelper h,int offset){
-        var l=h.getLevel();BlockPos p=h.absolutePos(new BlockPos(offset,2,0));p=new BlockPos(p.getX(),l.getMaxBuildHeight()-24,p.getZ());
+        var l=h.getLevel();BlockPos p=h.absolutePos(new BlockPos(offset,2,0));p=new BlockPos(p.getX(),l.getMaxBuildHeight()-24,offset*2);
         for(int x=-6;x<=20;x++)for(int z=-8;z<=12;z++){
             for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.GRASS_BLOCK.defaultBlockState());
@@ -24,8 +24,9 @@ public final class AdaptiveRoadGameTests {
     }
     static void route(AdaptiveRoadConstructor.Data d,BlockPos p,int kind){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",kind);d.route.add(t);}
     static void drive(GameTestHelper h,AdaptiveRoadConstructor bot,AdaptiveRoadConstructor.Data d,Consumer<AdaptiveRoadConstructor.Data> ready,Consumer<AdaptiveRoadConstructor.Data> done){
-        final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};
+        final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};final GameTestAssertException[] failure={null};
         h.succeedWhen(()->{
+            if(failure[0]!=null)throw failure[0];
             var job=active[0];
             if(job.state.equals("RECHAZADO")||job.state.equals("PAUSADO")){bot.shutdown();h.assertTrue(false,"Adaptive road halted: "+job.summary());return;}
             int count=job.changes.size();bot.tickProject(h.getLevel().getServer(),job);
@@ -35,7 +36,7 @@ public final class AdaptiveRoadGameTests {
                 var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
                 h.assertTrue(restored.state.equals("PAUSADO")&&restored.cursor==job.cursor,"Checkpoint survives restart and pauses");restored.state="CONSTRUYENDO";active[0]=restored;checked[0]=true;
             }
-            if(active[0].state.equals("TERMINADO")){done.accept(active[0]);bot.shutdown();return;}
+            if(active[0].state.equals("TERMINADO")){try{done.accept(active[0]);}catch(GameTestAssertException e){failure[0]=e;throw e;}bot.shutdown();return;}
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
