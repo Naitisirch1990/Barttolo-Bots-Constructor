@@ -309,7 +309,7 @@ public final class AdaptiveRoadConstructor {
             if(old.equals(after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
             if(after.isAir())for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
-            if(!after.isAir()&&!l.getEntities(null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){halt(s,d,"Una entidad ocupa "+p+"; movela y continuá.");return;}
+            if(!after.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){halt(s,d,"Una entidad ocupa "+p+"; movela y continuá.");return;}
             if(!pending){CompoundTag change=task.copy();change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
             d.cursor++;d.setDirty();edits++;showWorker(l,BlockPos.of(task.getLong("worker")));
@@ -324,7 +324,7 @@ public final class AdaptiveRoadConstructor {
             BlockState old=read(l,t,"before"),after=read(l,t,"after"),current=l.getBlockState(p);
             if(current.equals(old)){d.undo--;d.setDirty();continue;}
             if(!matches(current,after)||l.getBlockEntity(p)!=null||!allowed(l,p)){d.state="DESHACER_PAUSADO";d.report="Conflicto o protección al restaurar "+p;d.setDirty();reset();return;}
-            if(!old.isAir()&&!l.getEntities(null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){d.state="DESHACER_PAUSADO";d.report="Entidad en el volumen a restaurar: "+p;d.setDirty();reset();return;}
+            if(!old.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){d.state="DESHACER_PAUSADO";d.report="Entidad en el volumen a restaurar: "+p;d.setDirty();reset();return;}
             if(!l.setBlock(p,old,3)){d.state="DESHACER_PAUSADO";d.report="Falló restauración "+p;d.setDirty();reset();return;}
             d.undo--;d.setDirty();
         }
