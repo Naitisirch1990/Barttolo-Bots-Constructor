@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="barttolobots"
-version="0.5.5-constructor-0.3.6-test1"
+version="0.5.5-constructor-0.3.7-test1"
 displayName="Barttolo Bots — RingWorld"
 displayTest="IGNORE_SERVER_VERSION"
 description='''Asistente fijo y Jardinero autónomo para mejorar gradualmente aldeas. Solo servidor.'''

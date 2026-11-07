@@ -33,7 +33,7 @@ public final class AdaptiveRoadConstructor {
     private Villager worker;
     private net.minecraft.world.phys.Vec3 workerTarget;
     private int workerStuck,lightIndex;
-    private boolean lastLight;
+    private boolean lastLight,flatOblique;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
     private int recipeIndex,previewCursor;
@@ -214,7 +214,7 @@ public final class AdaptiveRoadConstructor {
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
             int distance=Math.max(Math.abs(d.b.getX()-d.a.getX()),Math.abs(d.b.getZ()-d.a.getZ()));
-            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&((dx==0||dz==0)||(d.a.getY()==d.b.getY()&&Math.abs(d.b.getX()-d.a.getX())==Math.abs(d.b.getZ()-d.a.getZ())))){
+            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&((dx==0||dz==0)||d.a.getY()==d.b.getY())){
                 BlockPos p=d.a.offset((int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
@@ -269,7 +269,14 @@ public final class AdaptiveRoadConstructor {
         }
     }
     void routeFound(Data d,int sections){
-        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y materiales.";d.setDirty();
+        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();
+        flatOblique=d.a.getY()==d.b.getY()&&d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
+        for(int i=0;i<d.route.size()&&flatOblique;i++)if(BlockPos.of(d.route.getCompound(i).getLong("pos")).getY()!=d.a.getY())flatOblique=false;
+        if(flatOblique)for(int i=0;i<d.route.size();i++){
+            BlockPos center=BlockPos.of(d.route.getCompound(i).getLong("pos"));
+            for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)walkVolume.add(center.offset(x,y,z));
+        }
+d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y materiales.";d.setDirty();
     }
     void advance(){if(++search.neighbor>=12)search.current=null;}
     BlockState pavement(ServerLevel l,BlockPos p){
@@ -311,7 +318,7 @@ public final class AdaptiveRoadConstructor {
             boolean stairs=before.getY()<foot.getY()||next.getY()<foot.getY();
             Direction ascent=before.getY()<foot.getY()?Direction.fromDelta(px,0,pz):Direction.fromDelta(-dx,0,-dz);
             List<BlockPos> floors=new ArrayList<>();
-            if(dx!=0&&dz!=0){
+            if(flatOblique||(dx!=0&&dz!=0)){
                 for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)floors.add(foot.offset(x,-1,z));
             }else for(int w=-2;w<=2;w++)for(int along=corner?-2:0;along<=(corner?2:0);along++)
                 floors.add(foot.offset(-dz*w+dx*along,-1,dx*w+dz*along));
@@ -325,6 +332,7 @@ public final class AdaptiveRoadConstructor {
             }
             if(kind==1)for(int side:new int[]{-3,3}){
                 BlockPos edge=foot.offset(-dz*side,-1,dx*side);BlockPos rail=edge.above();
+                if(walkVolume.contains(rail))continue;
                 if((!editable(l,edge)&&!waterTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
                 if(!put(edge,pavement(l,edge))||!put(rail,Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Barandilla cruza otra sección.");return;}
             }
@@ -497,7 +505,7 @@ public final class AdaptiveRoadConstructor {
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
+    void reset(){flatOblique=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }

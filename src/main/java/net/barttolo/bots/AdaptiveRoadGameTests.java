@@ -49,6 +49,28 @@ public final class AdaptiveRoadGameTests {
         });
     }
     @GameTest(template="empty",timeoutTicks=2400)
+    public static void arbitraryAngleLongCrossingCutsThroughHill(GameTestHelper h){
+        BlockPos p=ground(h,10004);var l=h.getLevel();
+        for(int x=-4;x<=84;x++)for(int z=-4;z<=35;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),x>=35&&x<=45?Blocks.STONE.defaultBlockState():Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p,p.offset(80,0,31));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==81&&job.cut>0,"Direct arbitrary-angle route must cut the hill");
+            h.assertTrue(BlockPos.of(job.route.getCompound(80).getLong("pos")).equals(job.b),"Reach the selected B");
+        },job->{
+            for(int i=0;i<=80;i++){
+                int z=(int)Math.round(31.0*i/80);
+                for(int x=-2;x<=2;x++)for(int side=-2;side<=2;side++){
+                    h.assertTrue(l.getBlockState(p.offset(i+x,-1,z+side)).isSolid(),"Continuous oblique deck");
+                    h.assertTrue(l.getBlockState(p.offset(i+x,0,z+side)).isAir(),"No railing or hill obstructs the corridor");
+                }
+            }
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
     public static void levelDiagonalBridgeHasContinuousDeckAndCenteredLights(GameTestHelper h){
         BlockPos p=ground(h,9004);var l=h.getLevel();
         for(int x=-4;x<=24;x++)for(int z=-4;z<=24;z++){
