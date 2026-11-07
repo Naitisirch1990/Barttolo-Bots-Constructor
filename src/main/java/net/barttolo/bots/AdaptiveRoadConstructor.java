@@ -47,23 +47,24 @@ public final class AdaptiveRoadConstructor {
 
     public static final class Data extends SavedData {
         BlockPos a,b;String dimension="minecraft:overworld",state="VACIO",report="";
-        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights;
+        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights;boolean resumeAfterPlan;
         final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag(),archives=new ListTag();
         static Data get(MinecraftServer s){return s.overworld().getDataStorage().computeIfAbsent(Data::load,Data::new,"barttolobots_terrain_roads_v2");}
         static Data load(CompoundTag t){
-            Data d=new Data();d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
+            Data d=new Data();d.resumeAfterPlan=t.getBoolean("resumeAfterPlan");d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
             if(t.contains("dimension"))d.dimension=t.getString("dimension");d.state=t.getString("state");d.report=t.getString("report");
             d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.lamps.addAll(t.getList("lamps",10));
             d.route.addAll(t.getList("route",10));d.tasks.addAll(t.getList("tasks",10));d.changes.addAll(t.getList("changes",10));
             if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="PAUSADO";}
             if(d.state.equals("CONSTRUYENDO"))d.state="PAUSADO";
             if(d.state.equals("DESHACIENDO"))d.state="DESHACER_PAUSADO";
-            if(t.getInt("planVersion")<3&&!d.route.isEmpty()&&d.changes.isEmpty()){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="CONFIGURANDO";d.report="Plan anterior pendiente: volvé a planificar para aplicar pendientes suaves y luces.";}
+            if(t.getInt("planVersion")<3&&!d.route.isEmpty()&&d.changes.isEmpty()){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="CONFIGURANDO";d.report="Plan anterior pendiente: usá crear y marcá A/B otra vez.";}
+            if(d.state.equals("LISTO")){d.state="CONFIRMADO";d.previewTicks=200;}
             return d;
         }
         public CompoundTag save(CompoundTag t){
             if(a!=null)t.putLong("a",a.asLong());if(b!=null)t.putLong("b",b.asLong());
-            t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
+            t.putBoolean("resumeAfterPlan",resumeAfterPlan);t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
             t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.put("lamps",lamps.copy());
             t.put("archives",archives.copy());t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
         }
@@ -94,7 +95,7 @@ public final class AdaptiveRoadConstructor {
     private ServerLevel level(MinecraftServer s,Data d){return s.getLevel(ResourceKey.create(Registries.DIMENSION,new ResourceLocation(d.dimension)));}
     public void register(CommandDispatcher<CommandSourceStack> dispatcher){
         var root=Commands.literal("constructor").requires(s->s.hasPermission(2));
-        for(String name:List.of("crear","puntoA","puntoB","planificar","vista","iniciar","pausar","continuar","detener","estado","ir","listar","deshacer"))root.then(Commands.literal(name).executes(c->command(c.getSource(),name)));
+        for(String name:List.of("crear","puntoA","puntoB","iniciar","pausar","continuar","detener","estado","ir","listar","deshacer"))root.then(Commands.literal(name).executes(c->command(c.getSource(),name)));
         var legacy=Commands.literal("legado");
         for(String name:List.of("estado","deshacer","pausar"))legacy.then(Commands.literal(name).executes(c->{
             if(!name.equals("estado")&&Set.of("PLANIFICANDO","DISEÑANDO","CONSTRUYENDO","DESHACIENDO").contains(Data.get(c.getSource().getServer()).state))return fail(c.getSource(),"Pausá primero la obra adaptativa.");
@@ -112,19 +113,13 @@ public final class AdaptiveRoadConstructor {
             case "puntoA":case "puntoB":
                 if(!Set.of("CONFIGURANDO","RECHAZADO").contains(d.state)||!d.changes.isEmpty())return fail(s,"Primero crear una obra nueva.");
                 if(!d.dimension.equals(s.getLevel().dimension().location().toString()))return fail(s,"A y B deben estar en la misma dimensión.");
-                if(name.equals("puntoA"))d.a=s.getPlayerOrException().blockPosition();else d.b=s.getPlayerOrException().blockPosition();
-                d.state="CONFIGURANDO";break;
-            case "planificar":
-                if(!Set.of("CONFIGURANDO","RECHAZADO").contains(d.state))return fail(s,"La obra ya tiene un plan. Pausá o creá otra.");
-                if(d.a==null||d.b==null)return fail(s,"Marcá ambos puntos.");
-                if(d.a.getX()==d.b.getX()&&d.a.getZ()==d.b.getZ())return fail(s,"Separá horizontalmente los puntos para poder diseñar una pendiente.");
-                if(heuristic(d.a,d.b)>MAX_DISTANCE)return fail(s,"Distancia máxima: 2000 bloques.");
-                begin(d);break;
-            case "vista":
-                if(!Set.of("LISTO","CONFIRMADO").contains(d.state))return fail(s,"Esperá el plan LISTO.");
-                d.state="CONFIRMADO";d.previewTicks=200;d.report="Partículas: trazado y excavaciones durante 10 segundos cerca de jugadores. iniciar confirma los cambios.";break;
+                if(name.equals("puntoA")){d.a=s.getPlayerOrException().blockPosition();d.state="CONFIGURANDO";}
+                else{
+                    String problem=markBAndPlan(d,s.getPlayerOrException().blockPosition());
+                    if(problem!=null)return fail(s,problem);
+                }break;
             case "iniciar":
-                if(!d.state.equals("CONFIRMADO"))return fail(s,"Primero planificar y vista; iniciar confirma también la excavación.");
+                if(!Set.of("CONFIRMADO","LISTO").contains(d.state))return fail(s,"Marcá A y B y esperá la vista automática antes de iniciar.");
                 d.state="CONSTRUYENDO";d.report="Construcción progresiva.";break;
             case "pausar":case "detener":
                 if(Set.of("PLANIFICANDO","DISEÑANDO").contains(d.state)){d.tasks.clear();d.route.clear();}
@@ -134,7 +129,7 @@ public final class AdaptiveRoadConstructor {
             case "continuar":
                 if(d.state.equals("DESHACER_PAUSADO")){d.state="DESHACIENDO";break;}
                 if(!d.state.equals("PAUSADO"))return fail(s,"No hay obra pausada.");
-                if(d.tasks.isEmpty())begin(d);else{d.state="LISTO";d.report="Plan recuperado; usá vista e iniciar. Cada bloque se revalidará al modificarlo.";}break;
+                resume(d);break;
             case "deshacer":
                 if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))return fail(s,"Pausá antes de deshacer.");
                 if(d.changes.isEmpty()&&!restoreArchive(d))return fail(s,"No hay obras para deshacer. Para 0.1.0 usá /bot constructor legado deshacer.");
@@ -155,6 +150,16 @@ public final class AdaptiveRoadConstructor {
         }
         d.setDirty();s.sendSuccess(()->Component.literal("Constructor: "+d.summary()),false);return 1;
     }
+    String markBAndPlan(Data d,BlockPos point){
+        if(d.a==null)return "Primero marcá puntoA.";
+        if(d.a.getX()==point.getX()&&d.a.getZ()==point.getZ())return "Separá horizontalmente A y B.";
+        if(heuristic(d.a,point)>MAX_DISTANCE)return "Distancia máxima: 2000 bloques.";
+        d.b=point;begin(d);return null;
+    }
+    void resume(Data d){
+        if(d.tasks.isEmpty()){begin(d);d.resumeAfterPlan=true;}
+        else{d.state="CONSTRUYENDO";d.report="Obra reanudada.";d.setDirty();}
+    }
     static boolean archiveFinished(Data d){
         if(d.changes.isEmpty())return true;
         if(!d.state.equals("TERMINADO"))return false;
@@ -168,7 +173,7 @@ public final class AdaptiveRoadConstructor {
         d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
@@ -318,7 +323,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         return false;
     }
     void designTick(MinecraftServer s,ServerLevel l,Data d){
-        if(planningData!=d){halt(s,d,"El diseño fue interrumpido. Volvé a planificar.");return;}
+        if(planningData!=d){halt(s,d,"El diseño fue interrumpido. Usá crear y marcá A/B otra vez.");return;}
         if(recipeIndex<d.route.size()){
             int i=recipeIndex;BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot))return;
             BlockPos before=BlockPos.of(d.route.getCompound(Math.max(0,i-1)).getLong("pos"));
@@ -367,7 +372,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             t.putLong("worker",workers.getOrDefault(p,p.above()).asLong());d.tasks.add(t);if(!old.equals(after)){if(after.isAir())d.cut++;else d.fill++;}
         }
         if(d.tasks.size()==recipe.size()){
-            d.state="LISTO";d.report="Plan calculado. vista muestra el trazado; iniciar autoriza excavar y construir.";d.setDirty();recipe.clear();release();
+            d.previewTicks=200;d.state=d.resumeAfterPlan?"CONSTRUYENDO":"CONFIRMADO";d.resumeAfterPlan=false;d.report=d.state.equals("CONSTRUYENDO")?"Plan recuperado. Construcción reanudada.":"Plan calculado. Vista automática durante 10 segundos; usá iniciar para construir.";d.setDirty();recipe.clear();release();
             s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);
         }
     }
@@ -434,12 +439,23 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
             if(after.isAir())for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
-            if(!after.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){halt(s,d,"Una entidad ocupa "+p+"; movela y continuá.");return;}
+            if(!after.isAir()&&!clearObstructions(l,p)){halt(s,d,"Un jugador ocupa "+p+"; apartate y usá continuar.");return;}
             if(!pending){CompoundTag change=task.copy();change.put("before",NbtUtils.writeBlockState(current));change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
             d.cursor++;d.setDirty();edits++;if(edits==1)showWorker(l,BlockPos.of(task.getLong("worker")));
         }
         if(d.cursor>=d.tasks.size()){d.state="TERMINADO";d.report="Ruta terminada.";d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);}
+    }
+    static boolean carriesPlayer(net.minecraft.world.entity.Entity entity){
+        if(entity instanceof net.minecraft.world.entity.player.Player)return true;
+        for(var passenger:entity.getPassengers())if(carriesPlayer(passenger))return true;
+        return false;
+    }
+    boolean clearObstructions(ServerLevel l,BlockPos p){
+        var entities=l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator());
+        for(var e:entities)if(carriesPlayer(e))return false;
+        for(var e:entities)e.discard();
+        return true;
     }
     boolean allowed(ServerLevel l,BlockPos p){return !MinecraftForge.EVENT_BUS.post(new BlockEvent.BreakEvent(l,p,l.getBlockState(p),FakePlayerFactory.getMinecraft(l)));}
     void undoTick(MinecraftServer s,ServerLevel l,Data d){
@@ -449,7 +465,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             BlockState old=read(l,t,"before"),after=read(l,t,"after"),current=l.getBlockState(p);
             if(current.equals(old)){d.undo--;d.setDirty();continue;}
             if(!matches(current,after)||l.getBlockEntity(p)!=null||!allowed(l,p)){d.state="DESHACER_PAUSADO";d.report="Conflicto o protección al restaurar "+p;d.setDirty();reset();return;}
-            if(!old.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){d.state="DESHACER_PAUSADO";d.report="Entidad en el volumen a restaurar: "+p;d.setDirty();reset();return;}
+            if(!old.isAir()&&!clearObstructions(l,p)){d.state="DESHACER_PAUSADO";d.report="Jugador en el volumen a restaurar: "+p+"; apartate y usá continuar.";d.setDirty();reset();return;}
             if(!l.setBlock(p,old,3)){d.state="DESHACER_PAUSADO";d.report="Falló restauración "+p;d.setDirty();reset();return;}
             d.undo--;d.setDirty();
         }

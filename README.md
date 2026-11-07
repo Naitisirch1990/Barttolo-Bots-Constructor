@@ -1,3 +1,7 @@
+# Barttolo Constructor 0.3.9 — crear, puntoA, puntoB, iniciar
+
+puntoB planifica y muestra la vista automáticamente. continuar reanuda la obra directamente. [Cambios y eliminación de entidades](docs/CONSTRUCTOR-0.3.9.md).
+
 # Barttolo Bots — Constructor 0.3.2 — puentes largos y búsqueda acotada
 
 El nuevo oficio se utiliza con `/bot constructor`. Asistente y Jardinero conservan sus comandos.

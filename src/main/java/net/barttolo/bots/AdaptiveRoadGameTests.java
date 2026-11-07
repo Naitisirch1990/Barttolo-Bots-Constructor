@@ -43,14 +43,42 @@ public final class AdaptiveRoadGameTests {
             if(job.state.equals("RECHAZADO")||job.state.equals("PAUSADO")){bot.shutdown();h.assertTrue(false,"Adaptive road halted: "+job.summary());return;}
             int count=job.changes.size();bot.tickProject(h.getLevel().getServer(),job);
             h.assertTrue(job.changes.size()-count<=8,"At most eight block edits per tick");
-            if(job.state.equals("LISTO")){ready.accept(job);job.state="CONSTRUYENDO";}
+            if(job.state.equals("CONFIRMADO")){ready.accept(job);job.state="CONSTRUYENDO";}
             if(!checked[0]&&job.cursor>3&&job.state.equals("CONSTRUYENDO")){
                 var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
-                h.assertTrue(restored.state.equals("PAUSADO")&&restored.cursor==job.cursor,"Checkpoint survives restart and pauses");restored.state="CONSTRUYENDO";active[0]=restored;checked[0]=true;
+                h.assertTrue(restored.state.equals("PAUSADO")&&restored.cursor==job.cursor,"Checkpoint survives restart and pauses");bot.resume(restored);h.assertTrue(restored.state.equals("CONSTRUYENDO"),"Resume continues without another preview/start");active[0]=restored;checked[0]=true;
             }
             if(active[0].state.equals("TERMINADO")){try{done.accept(active[0]);}catch(GameTestAssertException e){failure[0]=e;throw e;}bot.shutdown();return;}
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void markingBPlansAndPreviewsWithoutExtraCommands(GameTestHelper h){
+        BlockPos p=ground(h,11004);var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(8));
+        var dispatcher=new com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack>();b.register(dispatcher);
+        var commands=dispatcher.getRoot().getChild("bot").getChild("constructor");
+        h.assertTrue(commands.getChild("planificar")==null&&commands.getChild("vista")==null,"Remove redundant commands");
+        h.assertTrue(b.markBAndPlan(d,p.east(8))==null&&d.state.equals("PLANIFICANDO"),"Marking B immediately starts planning");
+        drive(h,b,d,job->h.assertTrue(job.previewTicks>0,"Automatically preview before the single start command"),
+            job->h.assertTrue(job.state.equals("TERMINADO"),"Complete the simplified flow"));
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void continueInterruptedPlanningBuildsWithoutAnotherStart(GameTestHelper h){
+        BlockPos p=ground(h,11404);var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(8));
+        b.begin(d);b.shutdown();d.state="PAUSADO";b.resume(d);
+        h.assertTrue(d.resumeAfterPlan&&d.state.equals("PLANIFICANDO"),"Continue authorizes completion after replanning");
+        drive(h,b,d,job->h.assertTrue(false,"A resumed plan must not wait for another start"),
+            job->h.assertTrue(job.state.equals("TERMINADO"),"Resume planning and construction in one step"));
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void nonPlayerObstructionIsDiscardedWithoutPausing(GameTestHelper h){
+        BlockPos p=ground(h,11804);var l=h.getLevel();var b=new AdaptiveRoadConstructor();
+        var pig=net.minecraft.world.entity.EntityType.PIG.create(l);
+        pig.setNoAi(true);pig.setNoGravity(true);pig.setInvulnerable(true);
+        pig.setCustomName(net.minecraft.network.chat.Component.literal("Obstruction"));
+        pig.moveTo(p.getX()+.5,p.getY(),p.getZ()+.5,0,0);l.addFreshEntity(pig);
+        h.assertTrue(b.clearObstructions(l,p)&&pig.isRemoved(),"Discard a named invulnerable mob occupying the next block");
+        b.shutdown();h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=100)
     public static void planningDeadlineRejectsWithoutChangingWorld(GameTestHelper h){
