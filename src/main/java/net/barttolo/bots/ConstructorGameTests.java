@@ -113,13 +113,13 @@ public class ConstructorGameTests {
         h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)
-    public static void blockedPlantsDoNotPreventReachableWorkAndPersistHonestly(GameTestHelper h)throws Exception{
+    public static void directPlacementDoesNotNeedAPathAndPersistsCompletion(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos c=center(h,1280);lawn(level,c,22);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;
         BlockPos isolated=c.offset(8,0,8);for(int x=-4;x<=4;x++)for(int z=-4;z<=4;z++)if(Math.abs(x)==4||Math.abs(z)==4)for(int y=1;y<=2;y++)level.setBlockAndUpdate(isolated.offset(x,y,z),Blocks.STONE_BRICKS.defaultBlockState());
         d.addTask(ConstructorBuilder.TUFT,isolated.getX(),isolated.getY(),isolated.getZ());BlockPos clear=c.offset(-5,0,-5);d.addTask(ConstructorBuilder.FLOWER,clear.getX(),clear.getY(),clear.getZ());
         for(int tick=0;tick<3000&&!d.finished&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
-        h.assertTrue(level.getBlockState(clear.above()).is(BlockTags.FLOWERS)&&d.reviewPending&&!d.finished&&d.retryTasks.size()==1,"do reachable work before reporting inaccessible decoration");
-        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));h.assertTrue(restored.reviewPending&&restored.retryTasks.size()==1,"pending decoration must survive a restart");h.succeed();
+        h.assertTrue(level.getBlockState(isolated.above()).is(Blocks.GRASS)&&level.getBlockState(clear.above()).is(BlockTags.FLOWERS)&&d.finished&&d.retryTasks.isEmpty(),"direct placement must complete both tasks without a navigable path");
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));h.assertTrue(restored.finished&&restored.retryTasks.isEmpty(),"completion state must survive a restart");h.succeed();
     }
 
     @GameTest(template="empty",timeoutTicks=600)
