@@ -80,16 +80,24 @@ public final class AdaptiveRoadConstructor {
             ||b.is(Blocks.SAND)||b.is(Blocks.RED_SAND)||b.is(Blocks.SANDSTONE)||b.is(Blocks.RED_SANDSTONE)||b.is(Blocks.GRAVEL)||b.is(Blocks.CLAY)
             ||b.is(Blocks.GRASS)||b.is(Blocks.TALL_GRASS)||b.is(Blocks.FERN)||b.is(Blocks.LARGE_FERN)||b.is(Blocks.SNOW)||b.is(Blocks.SNOW_BLOCK)||b.is(BlockTags.FLOWERS);
     }
+    static boolean bearing(ServerLevel l,BlockPos p){
+        BlockState state=l.getBlockState(p);
+        return editable(l,p)&&state.isFaceSturdy(l,p,Direction.UP)&&!state.is(BlockTags.LEAVES)&&!state.is(BlockTags.LOGS);
+    }
     private ServerLevel level(MinecraftServer s,Data d){return s.getLevel(ResourceKey.create(Registries.DIMENSION,new ResourceLocation(d.dimension)));}
     public void register(CommandDispatcher<CommandSourceStack> dispatcher){
         var root=Commands.literal("constructor").requires(s->s.hasPermission(2));
         for(String name:List.of("crear","puntoA","puntoB","planificar","vista","iniciar","pausar","continuar","detener","estado","ir","listar","deshacer"))root.then(Commands.literal(name).executes(c->command(c.getSource(),name)));
         var legacy=Commands.literal("legado");
-        for(String name:List.of("estado","deshacer","pausar"))legacy.then(Commands.literal(name).executes(c->Bots.roads.command(c.getSource(),name)));
+        for(String name:List.of("estado","deshacer","pausar"))legacy.then(Commands.literal(name).executes(c->{
+            if(!name.equals("estado")&&Set.of("PLANIFICANDO","DISEÑANDO","CONSTRUYENDO","DESHACIENDO").contains(Data.get(c.getSource().getServer()).state))return fail(c.getSource(),"Pausá primero la obra adaptativa.");
+            return Bots.roads.command(c.getSource(),name);
+        }));
         root.then(legacy);dispatcher.register(Commands.literal("bot").requires(s->s.hasPermission(2)).then(root));
     }
     int command(CommandSourceStack s,String name)throws CommandSyntaxException{
         Data d=Data.get(s.getServer());
+        if(!Set.of("estado","listar","ir").contains(name)&&RoadConstructor.Data.get(s.getServer()).state.equals("DESHACIENDO"))return fail(s,"Esperá a que termine el deshacer de la obra antigua.");
         switch(name){
             case "crear":
                 if(!d.changes.isEmpty())return fail(s,"Primero deshacé la obra anterior: conserva su historial.");
@@ -175,7 +183,7 @@ public final class AdaptiveRoadConstructor {
             BlockPos ceiling=floor.above(6);if(!l.getFluidState(ceiling).isEmpty()||l.getBlockEntity(ceiling)!=null)return null;
             if(l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
             int n=0;BlockPos support=floor.below();
-            while(!l.getBlockState(support).isFaceSturdy(l,support,Direction.UP)&&n<12){
+            while(!bearing(l,support)&&n<12){
                 if(!editable(l,support)&&!l.getBlockState(support).is(Blocks.WATER))return null;
                 if(!l.getFluidState(support).isEmpty()&&!l.getBlockState(support).is(Blocks.WATER))return null;
                 support=support.below();n++;
@@ -264,7 +272,7 @@ public final class AdaptiveRoadConstructor {
                 // Roads and ramps get shallow foundations; bridges get piers every five sections and at ends.
                 if(kind!=1||i%5==0||i==d.route.size()-1){
                     BlockPos support=floor.below();int n=0;
-                    while(!l.getBlockState(support).isFaceSturdy(l,support,Direction.UP)&&n++<12){
+                    while(!bearing(l,support)&&n++<12){
                         if(!put(support,Blocks.STONE_BRICKS.defaultBlockState())){halt(s,d,"Demasiados cambios en el soporte.");return;}support=support.below();
                     }
                 }

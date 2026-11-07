@@ -24,8 +24,8 @@ public final class AdaptiveRoadGameTests {
     }
     static void route(AdaptiveRoadConstructor.Data d,BlockPos p,int kind){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",kind);d.route.add(t);}
     static void drive(GameTestHelper h,AdaptiveRoadConstructor bot,AdaptiveRoadConstructor.Data d,Consumer<AdaptiveRoadConstructor.Data> ready,Consumer<AdaptiveRoadConstructor.Data> done){
-        final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};Runnable[] loop={null};
-        loop[0]=()->{
+        final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};
+        h.succeedWhen(()->{
             var job=active[0];
             if(job.state.equals("RECHAZADO")||job.state.equals("PAUSADO")){bot.shutdown();h.assertTrue(false,"Adaptive road halted: "+job.summary());return;}
             int count=job.changes.size();bot.tickProject(h.getLevel().getServer(),job);
@@ -35,9 +35,9 @@ public final class AdaptiveRoadGameTests {
                 var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
                 h.assertTrue(restored.state.equals("PAUSADO")&&restored.cursor==job.cursor,"Checkpoint survives restart and pauses");restored.state="CONSTRUYENDO";active[0]=restored;checked[0]=true;
             }
-            if(active[0].state.equals("TERMINADO")){done.accept(active[0]);bot.shutdown();h.succeed();return;}
-            h.runAfterDelay(1,loop[0]);
-        };h.runAfterDelay(1,loop[0]);
+            if(active[0].state.equals("TERMINADO")){done.accept(active[0]);bot.shutdown();return;}
+            throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
+        });
     }
     @GameTest(template="empty",timeoutTicks=1600)
     public static void findsOffAxisRouteAcrossDifferentHeightsAndExcavates(GameTestHelper h){
@@ -64,6 +64,9 @@ public final class AdaptiveRoadGameTests {
         for(int x=0;x<=8;x++)route(d,p.east(x),x>=2&&x<=6?2:0);d.state="DISEÑANDO";
         l.setBlockAndUpdate(p.offset(12,0,0),Blocks.CHEST.defaultBlockState());
         h.assertTrue(b.survey(l,p.east(12))==null,"Never excavate a chest in the survey footprint");
+        l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
+        for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
+        h.assertTrue(b.survey(l,p.east(18))==null,"Leaves cannot serve as a bridge foundation");
         drive(h,b,d,job->h.assertTrue(job.tunnels==5&&job.cut>=125,"Count tunnel sections and excavation"),job->{
             for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
             h.assertTrue(l.getBlockState(p.offset(4,5,0)).is(Blocks.STONE),"Keep the tunnel roof");
