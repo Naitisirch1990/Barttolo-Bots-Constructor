@@ -1,5 +1,12 @@
 # Historial
 
+## Constructor 0.3.0
+
+- Pendientes con tres secciones llanas entre escalones.
+- Farolas e iluminación empotrada cada diez secciones aproximadamente; vista y deshacer.
+- Movimiento gradual del albañil y recuperación segura al atascarse.
+- Conserva el Jardinero automático test23 sin NPC y con más flores/pasto.
+
 ## Constructor 0.2.0 — experimental
 
 - Planificador A* incremental en cuadrícula 3D: alturas y direcciones libres.

@@ -49,6 +49,12 @@ public final class AdaptiveRoadGameTests {
         }
         var d=data(h,p,p.offset(10,2,4));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
+            int previousStep=-100;
+            for(int i=1;i<job.route.size();i++){
+                BlockPos a=BlockPos.of(job.route.getCompound(i-1).getLong("pos")),z=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                if(a.getY()!=z.getY()){h.assertTrue(i-previousStep>=4,"Vertical steps must have three flat sections between them");previousStep=i;}
+            }
+            h.assertTrue(job.lights>0,"The route must include lighting");
             h.assertTrue(job.route.size()>10&&job.cut>0,"Search must find a non-cardinal, different-height route with excavation");
             h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(job.route.size()-1).getLong("pos")).equals(job.b),"Route must preserve both endpoints");
         },job->{
@@ -81,7 +87,7 @@ public final class AdaptiveRoadGameTests {
         }
         var d=data(h,p.above(),p.offset(8,1,0));var b=new AdaptiveRoadConstructor();b.begin(d);
 
-        drive(h,b,d,job->h.assertTrue(job.bridges>=3,"Automatically choose a bridge over the river"),job->{
+        drive(h,b,d,job->h.assertTrue(job.bridges>=3&&job.lights>0,"Automatically choose a bridge over the river"),job->{
             for(int x=3;x<=5;x++){
                 for(int z=-2;z<=2;z++)h.assertTrue(l.getBlockState(p.offset(x,0,z)).isSolid(),"Continuous five-wide bridge deck");
                 for(int z:new int[]{-3,3})h.assertTrue(l.getBlockState(p.offset(x,1,z)).getBlock() instanceof WallBlock,"Bridge railings stay outside the five-wide deck");
@@ -92,4 +98,36 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(4,0,0)).isAir(),"Undo must also handle auto-connected wall states");
         });
     }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void lightsPreserveTunnelClearanceAndAreJournaled(GameTestHelper h){
+        BlockPos p=ground(h,5800);var l=h.getLevel();
+        for(int x=2;x<=14;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+        var d=data(h,p,p.east(16));var b=new AdaptiveRoadConstructor();b.begin(d);
+        for(int x=0;x<=16;x++)route(d,p.east(x),x>=2&&x<=14?2:0);d.state="DISEÑANDO";
+        drive(h,b,d,job->{
+            h.assertTrue(job.lights>=2,"Plan lights on a long tunnel");
+            boolean ceiling=false;for(int i=0;i<job.lamps.size();i++)if(job.lamps.getCompound(i).getString("type").equals("ceiling"))ceiling=true;
+            h.assertTrue(ceiling,"Use an embedded ceiling light inside the tunnel");
+        },job->{
+            h.assertTrue(l.getBlockState(p.offset(10,5,0)).is(Blocks.GLOWSTONE),"Embedded light must be above the five-high clearance");
+            for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(10,y,z)).isAir(),"Lighting must not obstruct the tunnel");
+            job.undo=job.changes.size()-1;job.state="DESHACIENDO";
+            for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(10,5,0)).is(Blocks.STONE),"Undo must restore the embedded light and excavations");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void visualWorkerWalksInSmallCollisionCheckedSteps(GameTestHelper h){
+        BlockPos p=ground(h,6100);var l=h.getLevel();var b=new AdaptiveRoadConstructor();
+        try{
+            b.showWorker(l,p);
+            var entities=l.getEntitiesOfClass(net.minecraft.world.entity.npc.Villager.class,new net.minecraft.world.phys.AABB(p).inflate(8),e->e.getTags().contains("barttolo_adaptive_worker"));
+            h.assertTrue(entities.size()==1,"Spawn a visible mason worker");var worker=entities.get(0);double start=worker.getX();
+            b.showWorker(l,p.east(5));
+            for(int i=0;i<10;i++){var old=worker.position();b.walkWorker(l);h.assertTrue(worker.position().distanceTo(old)<=.19,"Worker must walk, not teleport across the section");}
+            h.assertTrue(worker.getX()>start+1&&worker.getX()<start+3,"Worker must visibly approach its target gradually");
+            h.succeed();
+        }finally{b.shutdown();}
+    }
+
 }

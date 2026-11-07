@@ -25,10 +25,16 @@ import net.minecraftforge.event.level.BlockEvent;
 /** Bounded, incremental terrain-aware road search. All world reads stay on the server thread. */
 public final class AdaptiveRoadConstructor {
     static final int MAX_NODES=16000,MAX_EDITS=120000,MAX_DISTANCE=2000;
+    static final int FLAT_BETWEEN_STEPS=3;
+    private static final Set<UUID> ACTIVE_WORKERS=new HashSet<>();
     private static final TicketType<Long> TICKET=TicketType.create("barttolo_adaptive_road",Long::compareTo,40);
     private ServerLevel ticketLevel;
     private final Set<Long> tickets=new HashSet<>();
     private Villager worker;
+    private net.minecraft.world.phys.Vec3 workerTarget;
+    private int workerStuck,lightIndex;
+    private boolean lastLight;
+    private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
     private int recipeIndex,previewCursor;
     private BlockPos recipeWorker;
@@ -38,23 +44,24 @@ public final class AdaptiveRoadConstructor {
 
     public static final class Data extends SavedData {
         BlockPos a,b;String dimension="minecraft:overworld",state="VACIO",report="";
-        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks;
-        final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag();
+        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights;
+        final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag();
         static Data get(MinecraftServer s){return s.overworld().getDataStorage().computeIfAbsent(Data::load,Data::new,"barttolobots_terrain_roads_v2");}
         static Data load(CompoundTag t){
             Data d=new Data();if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
             if(t.contains("dimension"))d.dimension=t.getString("dimension");d.state=t.getString("state");d.report=t.getString("report");
-            d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");
+            d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.lamps.addAll(t.getList("lamps",10));
             d.route.addAll(t.getList("route",10));d.tasks.addAll(t.getList("tasks",10));d.changes.addAll(t.getList("changes",10));
-            if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){d.route.clear();d.tasks.clear();d.state="PAUSADO";}
+            if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="PAUSADO";}
             if(d.state.equals("CONSTRUYENDO"))d.state="PAUSADO";
             if(d.state.equals("DESHACIENDO"))d.state="DESHACER_PAUSADO";
+            if(t.getInt("planVersion")<3&&!d.route.isEmpty()&&d.changes.isEmpty()){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="CONFIGURANDO";d.report="Plan anterior pendiente: volvé a planificar para aplicar pendientes suaves y luces.";}
             return d;
         }
         public CompoundTag save(CompoundTag t){
             if(a!=null)t.putLong("a",a.asLong());if(b!=null)t.putLong("b",b.asLong());
-            t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
-            t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);
+            t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
+            t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.put("lamps",lamps.copy());
             t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
         }
         String summary(){return state+" | "+cursor+"/"+tasks.size()+" cambios | camino "+roads+", puente "+bridges+", túnel "+tunnels+" secciones | excavar "+cut+", colocar "+fill+" | "+report;}
@@ -101,7 +108,7 @@ public final class AdaptiveRoadConstructor {
         switch(name){
             case "crear":
                 if(!d.changes.isEmpty())return fail(s,"Primero deshacé la obra anterior: conserva su historial.");
-                reset();d.a=null;d.b=null;d.cursor=0;d.route.clear();d.tasks.clear();d.dimension=s.getLevel().dimension().location().toString();d.state="CONFIGURANDO";d.report="Marcá A y B: alturas y direcciones libres.";break;
+                reset();d.a=null;d.b=null;d.cursor=0;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.dimension=s.getLevel().dimension().location().toString();d.state="CONFIGURANDO";d.report="Marcá A y B: alturas y direcciones libres.";break;
             case "puntoA":case "puntoB":
                 if(!Set.of("CONFIGURANDO","RECHAZADO").contains(d.state)||!d.changes.isEmpty())return fail(s,"Primero crear una obra nueva.");
                 if(!d.dimension.equals(s.getLevel().dimension().location().toString()))return fail(s,"A y B deben estar en la misma dimensión.");
@@ -122,6 +129,7 @@ public final class AdaptiveRoadConstructor {
             case "pausar":case "detener":
                 if(Set.of("PLANIFICANDO","DISEÑANDO").contains(d.state)){d.tasks.clear();d.route.clear();}
                 if(d.state.equals("DESHACIENDO"))d.state="DESHACER_PAUSADO";
+            if(t.getInt("planVersion")<3&&!d.route.isEmpty()&&d.changes.isEmpty()){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="CONFIGURANDO";d.report="Plan anterior pendiente: volvé a planificar para aplicar pendientes suaves y luces.";}
                 else if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))d.state="PAUSADO";
                 reset();break;
             case "continuar":
@@ -149,7 +157,7 @@ public final class AdaptiveRoadConstructor {
         d.setDirty();s.sendSuccess(()->Component.literal("Constructor: "+d.summary()),false);return 1;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";d.report="Buscando por cuadrícula 3D; analiza rodeos, desniveles, excavación y soporte.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";d.report="Buscando por cuadrícula 3D; analiza rodeos, desniveles, excavación y soporte.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
@@ -158,7 +166,7 @@ public final class AdaptiveRoadConstructor {
         if(d.previewTicks>0){if(s.getTickCount()%10==0)preview(l,d);d.previewTicks--;}
         if(d.state.equals("PLANIFICANDO")){if(search==null||planningData!=d){search=new Search(d.a,d.b);planningData=d;}searchTick(s,l,d);return;}
         if(d.state.equals("DISEÑANDO")){designTick(s,l,d);return;}
-        if(d.state.equals("CONSTRUYENDO")){buildTick(s,l,d);return;}
+        if(d.state.equals("CONSTRUYENDO")){walkWorker(l);buildTick(s,l,d);return;}
         if(d.state.equals("DESHACIENDO")){undoTick(s,l,d);return;}
         release();removeWorker();
     }
@@ -206,13 +214,13 @@ public final class AdaptiveRoadConstructor {
                 if(n.key.pos.equals(d.b)){
                     ArrayList<Node> nodes=new ArrayList<>();for(Node p=n;p!=null;p=p.parent)nodes.add(p);Collections.reverse(nodes);
                     for(Node p:nodes){CompoundTag t=new CompoundTag();t.putLong("pos",p.key.pos.asLong());t.putInt("kind",p.kind);d.route.add(t);}
-                    d.state="DISEÑANDO";recipeIndex=0;recipe.clear();d.report="Ruta encontrada: "+nodes.size()+" secciones. Calculando excavaciones y materiales.";d.setDirty();search=null;return;
+                    d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();d.report="Ruta encontrada: "+nodes.size()+" secciones. Calculando excavaciones y materiales.";d.setDirty();search=null;return;
                 }
                 search.neighbor=0;
             }
             Node from=search.current;int i=search.neighbor;int[] dir=dirs[i/3];int grade=grades[i%3];
             boolean turn=from.parent!=null&&(from.key.dx!=dir[0]||from.key.dz!=dir[1]);
-            if((turn&&(grade!=0||from.key.flat<3))||(grade!=0&&from.key.flat<0)||(from.key.grade>0&&grade<0)||(turn&&from.key.dx==-dir[0]&&from.key.dz==-dir[1])){advance();continue;}
+            if((turn&&(grade!=0||from.key.flat<3))||(grade!=0&&from.key.flat<FLAT_BETWEEN_STEPS)||(from.key.grade>0&&grade<0)||(turn&&from.key.dx==-dir[0]&&from.key.dz==-dir[1])){advance();continue;}
             BlockPos pos=from.key.pos.offset(dir[0],grade,dir[1]);
             if(from.length>=MAX_DISTANCE||Math.abs(pos.getX()-d.a.getX())+Math.abs(pos.getZ()-d.a.getZ())>MAX_DISTANCE
                 ||heuristic(pos,d.b)>MAX_DISTANCE||Math.abs(pos.getY()-d.a.getY())>96){advance();continue;}
@@ -265,6 +273,7 @@ public final class AdaptiveRoadConstructor {
             Direction ascent=before.getY()<foot.getY()?Direction.fromDelta(px,0,pz):Direction.fromDelta(-dx,0,-dz);
             for(int w=-2;w<=2;w++)for(int along=corner?-2:0;along<=(corner?2:0);along++){
                 BlockPos floor=foot.offset(-dz*w+dx*along,-1,dx*w+dz*along);
+                for(int h=1;h<=5;h++)walkVolume.add(floor.above(h));
                 BlockPos ceiling=floor.above(6);if(l.getBlockState(ceiling).getBlock() instanceof FallingBlock)put(ceiling,Blocks.STONE_BRICKS.defaultBlockState());
                 for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 BlockState paving=stairs?Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,ascent):pavement(l,floor);
@@ -284,6 +293,12 @@ public final class AdaptiveRoadConstructor {
             }
             recipeIndex++;d.setDirty();return;
         }
+        if(lightIndex<d.route.size()||!lastLight){
+            int i=lightIndex;
+            if(i>=d.route.size()){lastLight=true;i=d.route.size()-1;if(i<4||i%10<4)return;}
+            BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot)){if(lastLight)lastLight=false;return;}
+            recipeWorker=foot;planLight(l,d,i);lightIndex=i+10;return;
+        }
         // Snapshot one small batch per tick, under a moving chunk window.
         int end=Math.min(recipe.size(),d.tasks.size()+64);int index=0;
         for(var e:recipe.entrySet()){
@@ -299,6 +314,50 @@ public final class AdaptiveRoadConstructor {
             s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);
         }
     }
+    BlockState planned(ServerLevel l,BlockPos p){return recipe.getOrDefault(p,l.getBlockState(p));}
+    void recordLight(Data d,BlockPos p,String type){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putString("type",type);d.lamps.add(t);d.lights++;}
+    boolean postLight(ServerLevel l,Data d,BlockPos foot,int dx,int dz,int side){
+        BlockPos base=foot.offset(-dz*side,-1,dx*side);
+        LinkedHashMap<BlockPos,BlockState> parts=new LinkedHashMap<>();
+        parts.put(base,pavement(l,base));
+        for(int y=1;y<=3;y++)parts.put(base.above(y),Blocks.COBBLESTONE_WALL.defaultBlockState());
+        parts.put(base.above(4),Blocks.LANTERN.defaultBlockState());
+        for(var e:parts.entrySet()){
+            BlockPos p=e.getKey();BlockState existing=planned(l,p);
+            if(walkVolume.contains(p)||!l.hasChunkAt(p)||!l.getFluidState(p).isEmpty()||!editable(l,p))return false;
+            if(!p.equals(base)&&!existing.isAir()&&!existing.is(Blocks.COBBLESTONE_WALL))return false;
+            if(recipe.containsKey(p)&&!recipe.get(p).isAir()&&!recipe.get(p).equals(e.getValue()))return false;
+        }
+        if(!recipe.containsKey(base)){
+            BlockPos support=base.below();int depth=0;
+            while(!bearing(l,support)&&depth++<3){if(!editable(l,support)||!l.getFluidState(support).isEmpty())return false;parts.put(support,Blocks.STONE_BRICKS.defaultBlockState());support=support.below();}
+            if(!bearing(l,support))return false;
+        }
+        if(recipe.size()+parts.size()>MAX_EDITS)return false;
+        for(var e:parts.entrySet()){recipe.put(e.getKey(),e.getValue());workers.putIfAbsent(e.getKey(),recipeWorker);}
+        recordLight(d,base.above(4),"post");return true;
+    }
+    void planLight(ServerLevel l,Data d,int i){
+        BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));
+        BlockPos next=BlockPos.of(d.route.getCompound(Math.min(i+1,d.route.size()-1)).getLong("pos"));
+        BlockPos previous=BlockPos.of(d.route.getCompound(Math.max(0,i-1)).getLong("pos"));
+        int dx=Integer.signum(next.getX()-foot.getX()),dz=Integer.signum(next.getZ()-foot.getZ());
+        if(dx==0&&dz==0){dx=Integer.signum(foot.getX()-previous.getX());dz=Integer.signum(foot.getZ()-previous.getZ());}
+        BlockPos ceiling=foot.above(5);
+        if(d.route.getCompound(i).getInt("kind")==2&&!walkVolume.contains(ceiling)&&!planned(l,ceiling).isAir()&&editable(l,ceiling)&&l.getFluidState(ceiling).isEmpty()){
+            recipe.put(ceiling,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(ceiling,recipeWorker);recordLight(d,ceiling,"ceiling");return;
+        }
+        int side=(i/10)%2==0?3:-3;
+        if(postLight(l,d,foot,dx,dz,side)||postLight(l,d,foot,dx,dz,-side))return;
+        // A flush floor light keeps all five walking lanes free when a post will not fit.
+        for(int w:new int[]{2,-2,1,-1,0}){
+            BlockPos p=foot.offset(-dz*w,-1,dx*w);BlockState floor=recipe.get(p);
+            if(floor!=null&&!floor.isAir()&&!(floor.getBlock() instanceof StairBlock)&&editable(l,p)&&l.getFluidState(p).isEmpty()){
+                recipe.put(p,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(p,recipeWorker);recordLight(d,p,"inlay");return;
+            }
+        }
+        d.report="Una sección de iluminación requiere revisión: no cabe una luz segura en "+foot;
+    }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
         if(before.is(Blocks.WATER)&&!after.isAir())return true;
@@ -306,6 +365,7 @@ public final class AdaptiveRoadConstructor {
     }
     BlockState read(ServerLevel l,CompoundTag t,String key){return NbtUtils.readBlockState(l.holderLookup(Registries.BLOCK),t.getCompound(key));}
     void buildTick(MinecraftServer s,ServerLevel l,Data d){
+        if(worker!=null&&workerTarget!=null&&worker.position().distanceToSqr(workerTarget)>2.25&&workerStuck<40)return;
         int edits=0,checked=0;
         while(d.cursor<d.tasks.size()&&edits<8&&checked++<64){
             CompoundTag task=d.tasks.getCompound(d.cursor);BlockPos p=BlockPos.of(task.getLong("pos"));window(l,p);if(!loaded(l,p))return;
@@ -320,14 +380,14 @@ public final class AdaptiveRoadConstructor {
             if(!after.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){halt(s,d,"Una entidad ocupa "+p+"; movela y continuá.");return;}
             if(!pending){CompoundTag change=task.copy();change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
-            d.cursor++;d.setDirty();edits++;showWorker(l,BlockPos.of(task.getLong("worker")));
+            d.cursor++;d.setDirty();edits++;if(edits==1)showWorker(l,BlockPos.of(task.getLong("worker")));
         }
         if(d.cursor>=d.tasks.size()){d.state="TERMINADO";d.report="Ruta terminada.";d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);}
     }
     boolean allowed(ServerLevel l,BlockPos p){return !MinecraftForge.EVENT_BUS.post(new BlockEvent.BreakEvent(l,p,l.getBlockState(p),FakePlayerFactory.getMinecraft(l)));}
     void undoTick(MinecraftServer s,ServerLevel l,Data d){
         for(int i=0;i<8;i++){
-            if(d.undo<0){d.changes.clear();d.tasks.clear();d.route.clear();d.cursor=0;d.state="CONFIGURANDO";d.report="Terreno restaurado.";d.setDirty();reset();return;}
+            if(d.undo<0){d.changes.clear();d.tasks.clear();d.route.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.state="CONFIGURANDO";d.report="Terreno restaurado.";d.setDirty();reset();return;}
             CompoundTag t=d.changes.getCompound(d.undo);BlockPos p=BlockPos.of(t.getLong("pos"));window(l,p);if(!loaded(l,p))return;
             BlockState old=read(l,t,"before"),after=read(l,t,"after"),current=l.getBlockState(p);
             if(current.equals(old)){d.undo--;d.setDirty();continue;}
@@ -344,23 +404,63 @@ public final class AdaptiveRoadConstructor {
             if(l.players().stream().noneMatch(player->player.distanceToSqr(p.getX(),p.getY(),p.getZ())<80*80))continue;
             l.sendParticles(t.getInt("kind")==1?ParticleTypes.END_ROD:t.getInt("kind")==2?ParticleTypes.FLAME:ParticleTypes.HAPPY_VILLAGER,p.getX()+.5,p.getY()+.2,p.getZ()+.5,1,0,0,0,0);count++;
         }
+        for(int i=0;i<Math.min(64,d.lamps.size());i++){
+            BlockPos p=BlockPos.of(d.lamps.getCompound(i).getLong("pos"));
+            if(l.hasChunkAt(p)&&l.players().stream().anyMatch(player->player.distanceToSqr(p.getX(),p.getY(),p.getZ())<80*80))l.sendParticles(ParticleTypes.END_ROD,p.getX()+.5,p.getY()+.5,p.getZ()+.5,2,.1,.1,.1,0);
+        }
         int cuts=0;for(int checked=0;checked<Math.min(2048,d.tasks.size())&&cuts<64;checked++){
             int i=Math.floorMod(previewCursor++,d.tasks.size());CompoundTag t=d.tasks.getCompound(i);if(!t.getCompound("after").getString("Name").equals("minecraft:air"))continue;BlockPos p=BlockPos.of(t.getLong("pos"));
             if(!l.hasChunkAt(p)||l.players().stream().noneMatch(player->player.distanceToSqr(p.getX(),p.getY(),p.getZ())<64*64))continue;
             l.sendParticles(ParticleTypes.SMOKE,p.getX()+.5,p.getY()+.5,p.getZ()+.5,1,0,0,0,0);cuts++;
         }
     }
+    net.minecraft.world.phys.Vec3 safeFeet(ServerLevel l,double x,double z,int nearY){
+        BlockPos column=BlockPos.containing(x,nearY,z);if(!l.hasChunkAt(column))return null;
+        for(int y=1;y>=-2;y--){
+            BlockPos p=column.offset(0,y,0),floor=p.below();
+            if(!l.getBlockState(p).isAir()||!l.getBlockState(p.above()).isAir()||!l.getFluidState(floor).isEmpty())continue;
+            var shape=l.getBlockState(floor).getCollisionShape(l,floor);
+            if(shape.isEmpty())continue;
+            double top=floor.getY()+shape.max(Direction.Axis.Y);
+            var box=new net.minecraft.world.phys.AABB(x-.31,top+.01,z-.31,x+.31,top+1.91,z+.31);
+            if(l.noCollision(worker,box))return new net.minecraft.world.phys.Vec3(x,top,z);
+        }
+        return null;
+    }
     void showWorker(ServerLevel l,BlockPos p){
-        // Only show the worker where a full two-block air volume is available.
-        BlockPos safe=null;for(int y=0;y<=6;y++)if(l.getBlockState(p.above(y)).isAir()&&l.getBlockState(p.above(y+1)).isAir()){safe=p.above(y);break;}
-        if(safe==null)return;
-        if(worker==null||worker.isRemoved()||worker.level()!=l){removeWorker();worker=EntityType.VILLAGER.create(l);if(worker==null)return;worker.setNoAi(true);worker.setInvulnerable(true);worker.setSilent(true);worker.setCustomName(Component.literal("Constructor"));worker.setCustomNameVisible(true);worker.setVillagerData(worker.getVillagerData().setProfession(VillagerProfession.MASON));worker.addTag("barttolo_adaptive_worker");worker.moveTo(safe.getX()+.5,safe.getY(),safe.getZ()+.5,0,0);l.addFreshEntity(worker);}
-        worker.teleportTo(safe.getX()+.5,safe.getY(),safe.getZ()+.5);worker.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        net.minecraft.world.phys.Vec3 safe=null;
+        for(int r=0;r<=2&&safe==null;r++)for(int x=-r;x<=r&&safe==null;x++)for(int z=-r;z<=r&&safe==null;z++)
+            if(Math.max(Math.abs(x),Math.abs(z))==r)safe=safeFeet(l,p.getX()+x+.5,p.getZ()+z+.5,p.getY());
+        if(safe==null)return;workerTarget=safe;
+        if(worker==null||worker.isRemoved()||worker.level()!=l){
+            removeWorker();workerTarget=safe;worker=EntityType.VILLAGER.create(l);if(worker==null)return;
+            worker.setNoAi(true);worker.setNoGravity(true);worker.setInvulnerable(true);worker.setSilent(true);worker.setCustomName(Component.literal("Constructor"));worker.setCustomNameVisible(true);
+            worker.setVillagerData(worker.getVillagerData().setProfession(VillagerProfession.MASON));worker.addTag("barttolo_adaptive_worker");
+            worker.moveTo(safe.x,safe.y,safe.z,0,0);ACTIVE_WORKERS.add(worker.getUUID());
+            if(!l.addFreshEntity(worker)){ACTIVE_WORKERS.remove(worker.getUUID());worker=null;return;}
+        }
+        worker.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+    }
+    void walkWorker(ServerLevel l){
+        if(worker==null||worker.isRemoved()||workerTarget==null)return;
+        var position=worker.position();var delta=workerTarget.subtract(position);double horizontal=Math.sqrt(delta.x*delta.x+delta.z*delta.z);
+        if(horizontal<.1&&Math.abs(delta.y)<.2){workerStuck=0;return;}
+        double scale=horizontal>.18?.18/horizontal:1;
+        var next=safeFeet(l,position.x+delta.x*scale,position.z+delta.z*scale,worker.blockPosition().getY());
+        if(next!=null&&Math.abs(next.y-position.y)<=1.01){
+            float yaw=(float)Math.toDegrees(Math.atan2(-delta.x,delta.z));worker.setYRot(yaw);worker.setYBodyRot(yaw);worker.setYHeadRot(yaw);
+            worker.move(net.minecraft.world.entity.MoverType.SELF,next.subtract(position));
+            if(worker.position().distanceToSqr(position)>.001){workerStuck=0;return;}
+        }
+        if(++workerStuck>=60){
+            var safe=safeFeet(l,workerTarget.x,workerTarget.z,(int)Math.floor(workerTarget.y));
+            if(safe!=null){worker.teleportTo(safe.x,safe.y,safe.z);workerStuck=0;}
+        }
     }
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
-    void removeWorker(){if(worker!=null){worker.discard();worker=null;}}
+    void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;planningData=null;}
-    public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&e!=worker;}
+    void reset(){release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
+    public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }
