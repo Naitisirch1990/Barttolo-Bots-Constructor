@@ -66,7 +66,7 @@ public final class AdaptiveRoadConstructor {
     }
     record Survey(int kind,int cut,int fill,int depth){}
     static final class Search {
-        final BlockPos start,goal;final PriorityQueue<Node> open=new PriorityQueue<>(Comparator.comparingDouble((Node n)->n.rank).thenComparingDouble(n->n.cost));
+        final BlockPos start,goal;final PriorityQueue<Node> open=new PriorityQueue<>(Comparator.comparingDouble((Node n)->n.rank).thenComparingDouble(n->-n.cost));
         final Map<Key,Double> best=new HashMap<>();final Map<BlockPos,Survey> cache=new HashMap<>();
         Node current;int neighbor,expanded;String failure="";
         Search(BlockPos a,BlockPos b){start=a;goal=b;Node n=new Node(new Key(a,0,0,0,3),null,0,heuristic(a,b),0,0,0);open.add(n);best.put(n.key,0.0);}
@@ -76,6 +76,7 @@ public final class AdaptiveRoadConstructor {
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
         BlockState b=l.getBlockState(p);
         return b.isAir()||b.is(BlockTags.DIRT)||b.is(BlockTags.BASE_STONE_OVERWORLD)||b.is(BlockTags.LEAVES)||b.is(BlockTags.LOGS)
+            ||b.is(BlockTags.COAL_ORES)||b.is(BlockTags.IRON_ORES)||b.is(BlockTags.COPPER_ORES)||b.is(BlockTags.GOLD_ORES)||b.is(BlockTags.REDSTONE_ORES)||b.is(BlockTags.LAPIS_ORES)||b.is(BlockTags.DIAMOND_ORES)||b.is(BlockTags.EMERALD_ORES)
             ||b.is(Blocks.SAND)||b.is(Blocks.RED_SAND)||b.is(Blocks.SANDSTONE)||b.is(Blocks.RED_SANDSTONE)||b.is(Blocks.GRAVEL)||b.is(Blocks.CLAY)
             ||b.is(Blocks.GRASS)||b.is(Blocks.TALL_GRASS)||b.is(Blocks.FERN)||b.is(Blocks.LARGE_FERN)||b.is(Blocks.SNOW)||b.is(Blocks.SNOW_BLOCK)||b.is(BlockTags.FLOWERS);
     }
@@ -203,7 +204,7 @@ public final class AdaptiveRoadConstructor {
             }
             Node from=search.current;int i=search.neighbor;int[] dir=dirs[i/3];int grade=grades[i%3];
             boolean turn=from.parent!=null&&(from.key.dx!=dir[0]||from.key.dz!=dir[1]);
-            if((turn&&(grade!=0||from.key.flat<2))||(from.key.grade>0&&grade<0)||(turn&&from.key.dx==-dir[0]&&from.key.dz==-dir[1])){advance();continue;}
+            if((turn&&(grade!=0||from.key.flat<3))||(grade!=0&&from.key.flat<0)||(from.key.grade>0&&grade<0)||(turn&&from.key.dx==-dir[0]&&from.key.dz==-dir[1])){advance();continue;}
             BlockPos pos=from.key.pos.offset(dir[0],grade,dir[1]);
             if(from.length>=MAX_DISTANCE||Math.abs(pos.getX()-d.a.getX())+Math.abs(pos.getZ()-d.a.getZ())>MAX_DISTANCE
                 ||heuristic(pos,d.b)>MAX_DISTANCE||Math.abs(pos.getY()-d.a.getY())>96){advance();continue;}
@@ -214,7 +215,7 @@ public final class AdaptiveRoadConstructor {
                 int span=v.kind==1?from.span+1:0;
                 if(span<=48){
                     double cost=from.cost+1+(grade==0?0:.8)+(turn?.6:0)+v.cut*.018+v.fill*.012+(v.kind==1?.8:0);
-                    Key key=new Key(pos,dir[0],dir[1],grade,grade==0?Math.min(3,from.key.flat+1):0);
+                    Key key=new Key(pos,dir[0],dir[1],grade,grade==0?(turn?-2:Math.min(3,from.key.flat+1)):0);
                     if(cost<search.best.getOrDefault(key,Double.MAX_VALUE)){
                         search.best.put(key,cost);search.open.add(new Node(key,from,cost,heuristic(pos,d.b),v.kind,v.depth,span));
                     }
@@ -303,6 +304,7 @@ public final class AdaptiveRoadConstructor {
             BlockState old=read(l,task,"before"),after=read(l,task,"after"),current=l.getBlockState(p);
             boolean pending=d.changes.size()>0&&d.changes.getCompound(d.changes.size()-1).getInt("task")==d.cursor;
             if(pending&&matches(current,after)){d.cursor++;d.setDirty();continue;}
+            if(current.isAir()&&after.isAir()&&(old.is(BlockTags.LEAVES)||old.is(BlockTags.FLOWERS)||old.is(Blocks.GRASS)||old.is(Blocks.TALL_GRASS)||old.is(Blocks.FERN)||old.is(Blocks.LARGE_FERN))){d.cursor++;d.setDirty();continue;}
             if(!current.equals(old)||!safeChange(l,p,current,after)){halt(s,d,"El terreno cambió o está protegido en "+p+". No se sobrescribió.");return;}
             if(old.equals(after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
