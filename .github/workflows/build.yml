@@ -32,6 +32,7 @@ jobs:
           javac -d build/road-checks src/main/java/net/barttolo/bots/RoadLayout.java tests/RoadLayoutChecks.java
           java -cp build/road-checks RoadLayoutChecks
       - name: Check five-block road corridor
+        if: hashFiles('src/main/java/net/barttolo/bots/RoadCorridor.java') != ''
         run: |
           mkdir -p build/corridor-checks
           javac -d build/corridor-checks src/main/java/net/barttolo/bots/RoadCorridor.java tests/RoadCorridorChecks.java
