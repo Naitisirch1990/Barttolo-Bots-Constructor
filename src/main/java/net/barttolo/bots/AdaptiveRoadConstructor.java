@@ -218,7 +218,7 @@ public final class AdaptiveRoadConstructor {
                 ||heuristic(pos,d.b)>MAX_DISTANCE||Math.abs(pos.getY()-d.a.getY())>96){advance();continue;}
             window(l,pos);if(!loaded(l,pos))return;
             Survey v=search.cache.get(pos);
-            if(v==null){v=survey(l,pos);search.cache.put(pos,v==null?new Survey(-1,0,0,0):v);}
+            if(v==null){v=survey(l,pos);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(pos,v);}
             if(v.kind>=0){
                 int span=v.kind==1?from.span+1:0;
                 if(span<=48){
