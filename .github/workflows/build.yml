@@ -56,4 +56,5 @@ jobs:
           if gh release view constructor-0.2.0-test-54 >/dev/null 2>&1; then
             gh release edit constructor-0.2.0-test-54 --draft
           fi
-          gh release create "constructor-0.2.0-test-${GITHUB_RUN_NUMBER}" build/libs/*.jar --target "$GITHUB_SHA" --prerelease --title "Constructor 0.2.0 — prueba ${GITHUB_RUN_NUMBER}" --notes-file docs/CONSTRUCTOR-0.2.0.md
+          constructor_version=$(python3 -c "import re,pathlib; print(re.search(r'constructor-([0-9]+\\.[0-9]+\\.[0-9]+)',pathlib.Path('build.gradle').read_text()).group(1))")
+          gh release create "constructor-${constructor_version}-test-${GITHUB_RUN_NUMBER}" build/libs/*.jar --target "$GITHUB_SHA" --prerelease --title "Constructor ${constructor_version} — prueba ${GITHUB_RUN_NUMBER}" --notes-file "docs/CONSTRUCTOR-${constructor_version}.md"
