@@ -1,5 +1,13 @@
 # Historial
 
+## Constructor 0.2.0 — experimental
+
+- Planificador A* incremental en cuadrícula 3D: alturas y direcciones libres.
+- Excavación, escaleras, túneles de cinco por cinco y puentes con barandillas y pilares.
+- Paletas sencillas por bioma, vista con partículas y recuentos de cambios.
+- Historial independiente de 0.1.0, recuperación y deshacer.
+- Límites de búsqueda y alcance documentados en docs/CONSTRUCTOR-0.2.0.md.
+
 ## Constructor 0.1.0 — en desarrollo
 
 - Nuevo oficio `/bot constructor`, independiente del Jardinero.

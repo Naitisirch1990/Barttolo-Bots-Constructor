@@ -1,9 +1,9 @@
-# Barttolo Bots — Constructor 0.1.0 en desarrollo
+# Barttolo Bots — Constructor 0.2.0 — terreno adaptativo
 
 El nuevo oficio se utiliza con `/bot constructor`. Asistente y Jardinero conservan sus comandos.
 
 Versión experimental para copias de prueba. Los JAR se publican en Releases únicamente después de superar la compilación y las pruebas automatizadas de servidor de GitHub Actions.
-Consultar [alcance, comandos y límites](docs/CONSTRUCTOR-0.1.0.md).
+Consultar [alcance, comandos y límites](docs/CONSTRUCTOR-0.2.0.md).
 
 ---
 

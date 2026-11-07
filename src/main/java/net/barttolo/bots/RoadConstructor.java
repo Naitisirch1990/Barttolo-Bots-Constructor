@@ -27,6 +27,7 @@ public final class RoadConstructor {
     private final Set<Long> tickets=new HashSet<>();
     private ServerLevel ticketLevel;
     private Villager worker;
+    private final AdaptiveRoadConstructor adaptive=new AdaptiveRoadConstructor();
 
     public static final class Data extends SavedData {
         BlockPos a,b; String dimension="minecraft:overworld",state="VACIO",report="";
@@ -50,13 +51,10 @@ public final class RoadConstructor {
         BlockPos cell(int i){int[] p=RoadCorridor.cell(a.getX(),a.getZ(),b.getX(),b.getZ(),i);return new BlockPos(p[0],a.getY()-1,p[1]);}
     }
     public void register(CommandDispatcher<CommandSourceStack> dispatcher){
-        var root=Commands.literal("constructor").requires(s->s.hasPermission(2));
-        for(String action:List.of("crear","puntoA","puntoB","planificar","vista","iniciar","pausar","continuar","detener","estado","ir","listar","deshacer")){
-            final String command=action;root.then(Commands.literal(action).executes(c->command(c.getSource(),command)));
-        }
-        dispatcher.register(Commands.literal("bot").requires(s->s.hasPermission(2)).then(root));
+        adaptive.register(dispatcher);
     }
-    private int command(CommandSourceStack s,String action) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+
+    int command(CommandSourceStack s,String action) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         Data d=Data.get(s.getServer());
         switch(action){
             case "crear":
@@ -122,6 +120,7 @@ public final class RoadConstructor {
         for(long key:wanted){tickets.add(key);var c=new net.minecraft.world.level.ChunkPos(key);l.getChunkSource().addRegionTicket(TICKET,c,0,key);}
     }
     public void tick(MinecraftServer s){
+        adaptive.tick(s);
         if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;
         tickProject(s,Data.get(s));
     }
@@ -174,6 +173,6 @@ public final class RoadConstructor {
     private void halt(MinecraftServer s,Data d,String message){d.state=d.cursor>0?"PAUSADO":"RECHAZADO";d.report=message;d.setDirty();release();removeWorker();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor detenido: "+message),false);}
     private void removeWorker(){if(worker!=null){worker.discard();worker=null;}}
     public void release(){if(ticketLevel!=null)for(long key:tickets){var c=new net.minecraft.world.level.ChunkPos(key);ticketLevel.getChunkSource().removeRegionTicket(TICKET,c,0,key);}tickets.clear();ticketLevel=null;}
-    public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_road_worker")&&e!=worker;}
-    public void shutdown(){release();removeWorker();}
+    public boolean staleWorker(net.minecraft.world.entity.Entity e){return adaptive.staleWorker(e)||(e.getTags().contains("barttolo_road_worker")&&e!=worker);}
+    public void shutdown(){adaptive.shutdown();release();removeWorker();}
 }
