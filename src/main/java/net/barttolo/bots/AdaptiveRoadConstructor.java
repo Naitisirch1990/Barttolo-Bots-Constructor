@@ -325,9 +325,10 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             for(BlockPos floor:floors){
                 for(int h=1;h<=5;h++)walkVolume.add(floor.above(h));
                 BlockPos ceiling=floor.above(6);if(l.getBlockState(ceiling).getBlock() instanceof FallingBlock)put(ceiling,Blocks.STONE_BRICKS.defaultBlockState());
-                for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 BlockState paving=stairs?stairPavement(l,floor).setValue(StairBlock.FACING,ascent):pavement(l,floor);
                 if(!put(floor,paving)){halt(s,d,"Cruce a distinta altura: requiere otro trazado.");return;}
+                // Seal the deck before excavating over water.
+                for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 // The deck spans air/water without compulsory pillars.
             }
             if(kind==1)for(int side:new int[]{-3,3}){
