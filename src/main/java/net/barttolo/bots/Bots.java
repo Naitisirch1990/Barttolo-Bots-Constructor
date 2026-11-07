@@ -48,14 +48,14 @@ public final class Bots {
     @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());welcomeAt.clear();replyAt.clear();}
     @SubscribeEvent public void login(PlayerEvent.PlayerLoggedInEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!(p instanceof FakePlayer)){
-            visual.forget(p.getUUID());constructor.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
+            visual.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
         }
     }
     @SubscribeEvent public void logout(PlayerEvent.PlayerLoggedOutEvent e){
-        UUID id=e.getEntity().getUUID();visual.forget(id);constructor.forget(id);welcomeAt.remove(id);replyAt.remove(id);
+        UUID id=e.getEntity().getUUID();visual.forget(id);welcomeAt.remove(id);replyAt.remove(id);
     }
-    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
-    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());}
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent e){
         if(e.phase!=TickEvent.Phase.END)return;
         MinecraftServer s=e.getServer();int now=s.getTickCount();
@@ -145,9 +145,7 @@ public final class Bots {
                 .executes(ctx->constructor.create(ctx.getSource(),64))
                 .then(Commands.argument("ancho",IntegerArgumentType.integer(32,256))
                     .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
-            .then(Commands.literal("ir").executes(ctx->constructor.teleportTo(ctx.getSource())))
             .then(Commands.literal("continuar").executes(ctx->constructor.resume(ctx.getSource())))
-            .then(Commands.literal("piel").then(Commands.argument("jugador",EntityArgument.player()).executes(ctx->constructor.skin(ctx.getSource(),EntityArgument.getPlayer(ctx,"jugador")))))
             .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
             .then(Commands.literal("pausar").executes(ctx->constructor.pause(ctx.getSource())))
             .then(Commands.literal("auditar").executes(ctx->constructor.audit(ctx.getSource())))
