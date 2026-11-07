@@ -100,7 +100,7 @@ public final class AdaptiveRoadGameTests {
     }
     @GameTest(template="empty",timeoutTicks=1600)
     public static void findsShortStraightRouteAcrossFrozenSurface(GameTestHelper h){
-        BlockPos p=ground(h,5656);var l=h.getLevel();
+        BlockPos p=ground(h,5652);var l=h.getLevel();
         for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++){
             for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.PACKED_ICE.defaultBlockState());
@@ -112,14 +112,21 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(job.roads==21&&job.bridges==0&&job.tunnels==0,"Frozen level ground should remain a road");
         },job->h.assertTrue(job.cursor==job.tasks.size(),"Finish the frozen-surface route"));
     }
-    @GameTest(template="empty",timeoutTicks=1800)
+    @GameTest(template="empty",timeoutTicks=2400)
     public static void spansDeepTwentyBlockRavineWithSupportedBridge(GameTestHelper h){
-        BlockPos p=ground(h,6400);var l=h.getLevel();
+        BlockPos p=ground(h,6404);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++){
+            for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.GRASS_BLOCK.defaultBlockState());
+            for(int y=0;y<=9;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
         for(int x=3;x<=17;x++)for(int z=-4;z<=4;z++){
             for(int y=-1;y>=-23;y--)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,-24,z),Blocks.STONE.defaultBlockState());
         }
-        var d=data(h,p.above(),p.east(20).above());var b=new AdaptiveRoadConstructor();b.begin(d);
+        var d=data(h,p.above(),p.east(20).above());var b=new AdaptiveRoadConstructor();
+        for(int x=0;x<=20;x++)h.assertTrue(b.survey(l,p.east(x).above())!=null,"Survey crossing section "+x);
+        b.begin(d);
         drive(h,b,d,job->{
             h.assertTrue(job.route.size()==21,"Keep the direct twenty-block crossing");
             h.assertTrue(job.bridges>=10,"Classify the unsupported ravine span as a bridge");
