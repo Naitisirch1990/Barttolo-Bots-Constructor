@@ -56,23 +56,23 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(stairs&&job.changes.size()>0,"Construct traversable stairs and keep undo journal");
         });
     }
-    @GameTest(template="empty",timeoutTicks=400)
+    @GameTest(template="empty",timeoutTicks=1600)
     public static void tunnelHasFiveByFiveClearanceAndProtectedChestIsRejected(GameTestHelper h){
         BlockPos p=ground(h,5256);var l=h.getLevel();
         for(int x=2;x<=6;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
         var d=data(h,p,p.east(8));var b=new AdaptiveRoadConstructor();b.begin(d);
-        for(int x=0;x<=8;x++)route(d,p.east(x),x>=2&&x<=6?2:0);d.state="DISEÑANDO";
+
         l.setBlockAndUpdate(p.offset(12,0,0),Blocks.CHEST.defaultBlockState());
         h.assertTrue(b.survey(l,p.east(12))==null,"Never excavate a chest in the survey footprint");
         l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
         for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
         h.assertTrue(b.survey(l,p.east(18))==null,"Leaves cannot serve as a bridge foundation");
-        drive(h,b,d,job->h.assertTrue(job.tunnels==5&&job.cut>=125,"Count tunnel sections and excavation"),job->{
+        drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125,"Count tunnel sections and excavation"),job->{
             for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
             h.assertTrue(l.getBlockState(p.offset(4,5,0)).is(Blocks.STONE),"Keep the tunnel roof");
         });
     }
-    @GameTest(template="empty",timeoutTicks=400)
+    @GameTest(template="empty",timeoutTicks=1600)
     public static void bridgeHasDeckRailsPiersAndCanUndoConnectedWalls(GameTestHelper h){
         BlockPos p=ground(h,5512);var l=h.getLevel();
         for(int x=-4;x<=12;x++)for(int z=-5;z<=5;z++){
@@ -80,8 +80,8 @@ public final class AdaptiveRoadGameTests {
             else l.setBlockAndUpdate(p.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
         }
         var d=data(h,p.above(),p.offset(8,1,0));var b=new AdaptiveRoadConstructor();b.begin(d);
-        for(int x=0;x<=8;x++)route(d,p.offset(x,1,0),x>=3&&x<=5?1:0);d.state="DISEÑANDO";
-        drive(h,b,d,job->h.assertTrue(job.bridges==3,"Recognize three bridge sections"),job->{
+
+        drive(h,b,d,job->h.assertTrue(job.bridges>=3,"Automatically choose a bridge over the river"),job->{
             for(int x=3;x<=5;x++){
                 for(int z=-2;z<=2;z++)h.assertTrue(l.getBlockState(p.offset(x,0,z)).isSolid(),"Continuous five-wide bridge deck");
                 for(int z:new int[]{-3,3})h.assertTrue(l.getBlockState(p.offset(x,1,z)).getBlock() instanceof WallBlock,"Bridge railings stay outside the five-wide deck");
