@@ -45,10 +45,10 @@ public final class AdaptiveRoadConstructor {
     public static final class Data extends SavedData {
         BlockPos a,b;String dimension="minecraft:overworld",state="VACIO",report="";
         int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights;
-        final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag();
+        final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag(),archives=new ListTag();
         static Data get(MinecraftServer s){return s.overworld().getDataStorage().computeIfAbsent(Data::load,Data::new,"barttolobots_terrain_roads_v2");}
         static Data load(CompoundTag t){
-            Data d=new Data();if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
+            Data d=new Data();d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
             if(t.contains("dimension"))d.dimension=t.getString("dimension");d.state=t.getString("state");d.report=t.getString("report");
             d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.lamps.addAll(t.getList("lamps",10));
             d.route.addAll(t.getList("route",10));d.tasks.addAll(t.getList("tasks",10));d.changes.addAll(t.getList("changes",10));
@@ -62,9 +62,9 @@ public final class AdaptiveRoadConstructor {
             if(a!=null)t.putLong("a",a.asLong());if(b!=null)t.putLong("b",b.asLong());
             t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
             t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.put("lamps",lamps.copy());
-            t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
+            t.put("archives",archives.copy());t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
         }
-        String summary(){return state+" | "+cursor+"/"+tasks.size()+" cambios | camino "+roads+", puente "+bridges+", túnel "+tunnels+" secciones | excavar "+cut+", colocar "+fill+" | "+report;}
+        String summary(){return "Archivadas "+archives.size()+" | "+state+" | "+cursor+"/"+tasks.size()+" cambios | camino "+roads+", puente "+bridges+", túnel "+tunnels+" secciones | excavar "+cut+", colocar "+fill+" | "+report;}
     }
     record Key(BlockPos pos,int dx,int dz,int grade,int flat){}
     static final class Node {
@@ -104,7 +104,7 @@ public final class AdaptiveRoadConstructor {
         if(!Set.of("estado","listar","ir").contains(name)&&RoadConstructor.Data.get(s.getServer()).state.equals("DESHACIENDO"))return fail(s,"Esperá a que termine el deshacer de la obra antigua.");
         switch(name){
             case "crear":
-                if(!d.changes.isEmpty())return fail(s,"Primero deshacé la obra anterior: conserva su historial.");
+                if(!archiveFinished(d))return fail(s,"Terminá o deshacé la obra activa antes de crear otra.");
                 reset();d.a=null;d.b=null;d.cursor=0;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.dimension=s.getLevel().dimension().location().toString();d.state="CONFIGURANDO";d.report="Marcá A y B: alturas y direcciones libres.";break;
             case "puntoA":case "puntoB":
                 if(!Set.of("CONFIGURANDO","RECHAZADO").contains(d.state)||!d.changes.isEmpty())return fail(s,"Primero crear una obra nueva.");
@@ -134,7 +134,7 @@ public final class AdaptiveRoadConstructor {
                 if(d.tasks.isEmpty())begin(d);else{d.state="LISTO";d.report="Plan recuperado; usá vista e iniciar. Cada bloque se revalidará al modificarlo.";}break;
             case "deshacer":
                 if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))return fail(s,"Pausá antes de deshacer.");
-                if(d.changes.isEmpty())return fail(s,"No hay cambios en la obra nueva. Para 0.1.0 usá /bot constructor legado deshacer.");
+                if(d.changes.isEmpty()&&!restoreArchive(d))return fail(s,"No hay obras para deshacer. Para 0.1.0 usá /bot constructor legado deshacer.");
                 d.undo=d.changes.size()-1;d.state="DESHACIENDO";reset();break;
             case "ir":
                 ServerLevel l=level(s.getServer(),d);if(l==null||d.route.isEmpty())return fail(s,"No hay ruta calculada.");
@@ -151,6 +151,18 @@ public final class AdaptiveRoadConstructor {
             default:return 0;
         }
         d.setDirty();s.sendSuccess(()->Component.literal("Constructor: "+d.summary()),false);return 1;
+    }
+    static boolean archiveFinished(Data d){
+        if(d.changes.isEmpty())return true;
+        if(!d.state.equals("TERMINADO"))return false;
+        CompoundTag archive=new CompoundTag();archive.putString("dimension",d.dimension);
+        archive.put("changes",d.changes.copy());d.archives.add(archive);d.changes.clear();d.setDirty();return true;
+    }
+    static boolean restoreArchive(Data d){
+        if(d.archives.isEmpty())return false;
+        CompoundTag archive=d.archives.getCompound(d.archives.size()-1);
+        d.dimension=archive.getString("dimension");d.changes.addAll(archive.getList("changes",10));
+        d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
     void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";d.report="Buscando por cuadrícula 3D; analiza rodeos, desniveles, excavación y soporte.";search=new Search(d.a,d.b);planningData=d;}
@@ -202,7 +214,7 @@ public final class AdaptiveRoadConstructor {
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
             int distance=Math.abs(d.b.getX()-d.a.getX())+Math.abs(d.b.getZ()-d.a.getZ());
-            if(distance>0&&distance<=128&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&(dx==0||dz==0)){
+            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&(dx==0||dz==0)){
                 BlockPos p=d.a.offset(dx*search.directIndex,(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),dz*search.directIndex);window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
@@ -245,7 +257,7 @@ public final class AdaptiveRoadConstructor {
             if(v==null){v=survey(l,pos);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(pos,v);}
             if(v.kind>=0){
                 int span=v.kind==1?from.span+1:0;
-                if(span<=48){
+                if(span<=MAX_DISTANCE){
                     double cost=from.cost+1+(grade==0?0:.8)+(turn?.6:0)+v.cut*.018+v.fill*.012+(v.kind==1?.8:0);
                     Key key=new Key(pos,dir[0],dir[1],grade,grade==0?(turn?-2:Math.min(3,from.key.flat+1)):0);
                     if(cost<search.best.getOrDefault(key,Double.MAX_VALUE)){

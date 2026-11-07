@@ -39,6 +39,27 @@ public final class AdaptiveRoadGameTests {
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void eightyBlockBridgeArchivesAndRestoresUndoAfterRestart(GameTestHelper h){
+        BlockPos p=ground(h,7204);var l=h.getLevel();
+        for(int x=-4;x<=84;x++)for(int z=-5;z<=5;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=6;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p,p.east(80));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.bridges==81,"Plan a continuous eighty-block bridge"),job->{
+            int count=job.changes.size();
+            h.assertTrue(AdaptiveRoadConstructor.archiveFinished(job),"A completed project can be archived");
+            h.assertTrue(job.changes.isEmpty()&&job.archives.size()==1,"Free the active project without deleting blocks");
+            h.assertTrue(l.getBlockState(p.east(40).below()).isSolid(),"Archived bridge stays in the world");
+            var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
+            h.assertTrue(AdaptiveRoadConstructor.restoreArchive(restored)&&restored.changes.size()==count,"Keep undo history through restart");
+            restored.undo=count-1;restored.state="DESHACIENDO";
+            for(int i=0;i<1000&&restored.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,restored);
+            h.assertTrue(restored.changes.isEmpty()&&l.getBlockState(p.east(40).below()).is(Blocks.WATER),"Undo archived bridge restores the river");
+        });
+    }
     @GameTest(template="empty",timeoutTicks=1600)
     public static void riverAtDeckHeightWithAquaticPlantsAndOneBlockRise(GameTestHelper h){
         BlockPos p=ground(h,6804);var l=h.getLevel();
