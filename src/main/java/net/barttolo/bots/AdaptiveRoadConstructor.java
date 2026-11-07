@@ -124,11 +124,11 @@ public final class AdaptiveRoadConstructor {
             case "pausar":case "detener":
                 if(Set.of("PLANIFICANDO","DISEÑANDO").contains(d.state)){d.tasks.clear();d.route.clear();}
                 if(d.state.equals("DESHACIENDO"))d.state="DESHACER_PAUSADO";
-                else if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))d.state="PAUSADO";
+                else if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO","CONFIRMADO","LISTO").contains(d.state))d.state="PAUSADO";
                 reset();break;
             case "continuar":
                 if(d.state.equals("DESHACER_PAUSADO")){d.state="DESHACIENDO";break;}
-                if(!d.state.equals("PAUSADO"))return fail(s,"No hay obra pausada.");
+                if(!Set.of("PAUSADO","RECHAZADO").contains(d.state)||d.a==null||d.b==null)return fail(s,"No hay obra interrumpida con A/B marcados.");
                 resume(d);break;
             case "deshacer":
                 if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))return fail(s,"Pausá antes de deshacer.");
