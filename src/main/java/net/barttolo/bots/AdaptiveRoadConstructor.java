@@ -213,9 +213,9 @@ public final class AdaptiveRoadConstructor {
         // alternatives for the common case, and gives icy/rough biomes a fast verdict.
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
-            int distance=Math.abs(d.b.getX()-d.a.getX())+Math.abs(d.b.getZ()-d.a.getZ());
-            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&(dx==0||dz==0)){
-                BlockPos p=d.a.offset(dx*search.directIndex,(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),dz*search.directIndex);window(l,p);if(!loaded(l,p))return;
+            int distance=Math.max(Math.abs(d.b.getX()-d.a.getX()),Math.abs(d.b.getZ()-d.a.getZ()));
+            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&((dx==0||dz==0)||(d.a.getY()==d.b.getY()&&Math.abs(d.b.getX()-d.a.getX())==Math.abs(d.b.getZ()-d.a.getZ())))){
+                BlockPos p=d.a.offset((int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
                 if(v.kind<0){search.directPossible=false;d.route.clear();}
@@ -279,6 +279,14 @@ public final class AdaptiveRoadConstructor {
         if(biome.contains("swamp"))return Blocks.MANGROVE_PLANKS.defaultBlockState();
         return (hash==0?Blocks.ANDESITE:Blocks.STONE_BRICKS).defaultBlockState();
     }
+    BlockState stairPavement(ServerLevel l,BlockPos p){
+        return stairMaterial(pavement(l,p));
+    }
+    static BlockState stairMaterial(BlockState b){
+        if(b.is(Blocks.SMOOTH_SANDSTONE)||b.is(Blocks.CUT_SANDSTONE))return Blocks.SMOOTH_SANDSTONE_STAIRS.defaultBlockState();
+        if(b.is(Blocks.MANGROVE_PLANKS))return Blocks.MANGROVE_STAIRS.defaultBlockState();
+        return Blocks.STONE_BRICK_STAIRS.defaultBlockState();
+    }
     boolean put(BlockPos p,BlockState b){
         workers.putIfAbsent(p,recipeWorker);BlockState old=recipe.get(p);
         if(old!=null&&!old.equals(b))return false;
@@ -302,12 +310,16 @@ public final class AdaptiveRoadConstructor {
             int px=Integer.signum(foot.getX()-before.getX()),pz=Integer.signum(foot.getZ()-before.getZ());boolean corner=i>0&&i<d.route.size()-1&&(px!=dx||pz!=dz);
             boolean stairs=before.getY()<foot.getY()||next.getY()<foot.getY();
             Direction ascent=before.getY()<foot.getY()?Direction.fromDelta(px,0,pz):Direction.fromDelta(-dx,0,-dz);
-            for(int w=-2;w<=2;w++)for(int along=corner?-2:0;along<=(corner?2:0);along++){
-                BlockPos floor=foot.offset(-dz*w+dx*along,-1,dx*w+dz*along);
+            List<BlockPos> floors=new ArrayList<>();
+            if(dx!=0&&dz!=0){
+                for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)floors.add(foot.offset(x,-1,z));
+            }else for(int w=-2;w<=2;w++)for(int along=corner?-2:0;along<=(corner?2:0);along++)
+                floors.add(foot.offset(-dz*w+dx*along,-1,dx*w+dz*along));
+            for(BlockPos floor:floors){
                 for(int h=1;h<=5;h++)walkVolume.add(floor.above(h));
                 BlockPos ceiling=floor.above(6);if(l.getBlockState(ceiling).getBlock() instanceof FallingBlock)put(ceiling,Blocks.STONE_BRICKS.defaultBlockState());
                 for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
-                BlockState paving=stairs?Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,ascent):pavement(l,floor);
+                BlockState paving=stairs?stairPavement(l,floor).setValue(StairBlock.FACING,ascent):pavement(l,floor);
                 if(!put(floor,paving)){halt(s,d,"Cruce a distinta altura: requiere otro trazado.");return;}
                 // The deck spans air/water without compulsory pillars.
             }
@@ -372,12 +384,11 @@ public final class AdaptiveRoadConstructor {
         if(d.route.getCompound(i).getInt("kind")==2&&!walkVolume.contains(ceiling)&&!planned(l,ceiling).isAir()&&editable(l,ceiling)&&l.getFluidState(ceiling).isEmpty()){
             recipe.put(ceiling,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(ceiling,recipeWorker);recordLight(d,ceiling,"ceiling");return;
         }
-        int side=(i/10)%2==0?3:-3;
-        if(postLight(l,d,foot,dx,dz,side)||postLight(l,d,foot,dx,dz,-side))return;
+
         // A flush floor light keeps all five walking lanes free when a post will not fit.
-        for(int w:new int[]{2,-2,1,-1,0}){
+        for(int w:new int[]{0}){
             BlockPos p=foot.offset(-dz*w,-1,dx*w);BlockState floor=recipe.get(p);
-            if(floor!=null&&!floor.isAir()&&!(floor.getBlock() instanceof StairBlock)&&editable(l,p)&&l.getFluidState(p).isEmpty()){
+            if(floor!=null&&!floor.isAir()&&!(floor.getBlock() instanceof StairBlock)&&safeChange(l,p,l.getBlockState(p),Blocks.GLOWSTONE.defaultBlockState())){
                 recipe.put(p,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(p,recipeWorker);recordLight(d,p,"inlay");return;
             }
         }

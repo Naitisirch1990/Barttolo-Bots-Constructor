@@ -49,6 +49,29 @@ public final class AdaptiveRoadGameTests {
         });
     }
     @GameTest(template="empty",timeoutTicks=2400)
+    public static void levelDiagonalBridgeHasContinuousDeckAndCenteredLights(GameTestHelper h){
+        BlockPos p=ground(h,9004);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-4;z<=24;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=6;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        h.assertTrue(AdaptiveRoadConstructor.stairMaterial(Blocks.SMOOTH_SANDSTONE.defaultBlockState()).is(Blocks.SMOOTH_SANDSTONE_STAIRS),"Match sandstone stairs to sandstone pavement");
+        h.assertTrue(AdaptiveRoadConstructor.stairMaterial(Blocks.MANGROVE_PLANKS.defaultBlockState()).is(Blocks.MANGROVE_STAIRS),"Match mangrove stairs to wood pavement");
+        var d=data(h,p,p.offset(20,0,20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"Direct diagonal must not explore a cardinal detour");
+            h.assertTrue(job.lights>=2,"Diagonal includes lighting");
+            for(int i=0;i<job.lamps.size();i++){
+                BlockPos lamp=BlockPos.of(job.lamps.getCompound(i).getLong("pos"));
+                h.assertTrue(lamp.getX()-p.getX()==lamp.getZ()-p.getZ()&&lamp.getY()==p.getY()-1,"Floor lights stay on the diagonal centerline");
+            }
+        },job->{
+            for(int i=0;i<=20;i++)for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)
+                h.assertTrue(l.getBlockState(p.offset(i+x,-1,i+z)).isSolid(),"Diagonal deck has no gaps");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
     public static void eightyBlockBridgeArchivesAndRestoresUndoAfterRestart(GameTestHelper h){
         BlockPos p=ground(h,7204);var l=h.getLevel();
         for(int x=-4;x<=84;x++)for(int z=-5;z<=5;z++){
