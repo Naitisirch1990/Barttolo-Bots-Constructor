@@ -52,4 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view constructor-0.2.0-test-54 >/dev/null 2>&1; then
+            gh release edit constructor-0.2.0-test-54 --draft
+          fi
           gh release create "constructor-0.2.0-test-${GITHUB_RUN_NUMBER}" build/libs/*.jar --target "$GITHUB_SHA" --prerelease --title "Constructor 0.2.0 — prueba ${GITHUB_RUN_NUMBER}" --notes-file docs/CONSTRUCTOR-0.2.0.md
