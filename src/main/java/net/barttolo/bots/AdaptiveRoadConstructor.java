@@ -75,7 +75,7 @@ public final class AdaptiveRoadConstructor {
     static final class Search {
         final BlockPos start,goal;final PriorityQueue<Node> open=new PriorityQueue<>(Comparator.comparingDouble((Node n)->n.rank).thenComparingDouble(n->-n.cost));
         final Map<Key,Double> best=new HashMap<>();final Map<BlockPos,Survey> cache=new HashMap<>();
-        Node current;int neighbor,expanded;String failure="";
+        Node current;int neighbor,expanded,directIndex;boolean directPossible=true;String failure="";
         Search(BlockPos a,BlockPos b){start=a;goal=b;Node n=new Node(new Key(a,0,0,0,3),null,0,heuristic(a,b),0,0,0);open.add(n);best.put(n.key,0.0);}
     }
     static double heuristic(BlockPos a,BlockPos b){return Math.max(Math.abs(a.getX()-b.getX())+Math.abs(a.getZ()-b.getZ()),Math.abs(a.getY()-b.getY()));}
@@ -85,6 +85,9 @@ public final class AdaptiveRoadConstructor {
         return b.isAir()||b.is(BlockTags.DIRT)||b.is(BlockTags.BASE_STONE_OVERWORLD)||b.is(BlockTags.LEAVES)||b.is(BlockTags.LOGS)
             ||b.is(BlockTags.COAL_ORES)||b.is(BlockTags.IRON_ORES)||b.is(BlockTags.COPPER_ORES)||b.is(BlockTags.GOLD_ORES)||b.is(BlockTags.REDSTONE_ORES)||b.is(BlockTags.LAPIS_ORES)||b.is(BlockTags.DIAMOND_ORES)||b.is(BlockTags.EMERALD_ORES)
             ||b.is(Blocks.SAND)||b.is(Blocks.RED_SAND)||b.is(Blocks.SANDSTONE)||b.is(Blocks.RED_SANDSTONE)||b.is(Blocks.GRAVEL)||b.is(Blocks.CLAY)
+            // Natural frozen terrain is part of the traversable surface too. Ice spikes
+            // otherwise make a short route look impossible and send A* searching far away.
+            ||b.is(Blocks.ICE)||b.is(Blocks.PACKED_ICE)||b.is(Blocks.BLUE_ICE)||b.is(Blocks.FROSTED_ICE)
             ||b.is(Blocks.GRASS)||b.is(Blocks.TALL_GRASS)||b.is(Blocks.FERN)||b.is(Blocks.LARGE_FERN)||b.is(Blocks.SNOW)||b.is(Blocks.SNOW_BLOCK)||b.is(BlockTags.FLOWERS);
     }
     static boolean bearing(ServerLevel l,BlockPos p){
@@ -202,6 +205,24 @@ public final class AdaptiveRoadConstructor {
     }
     void searchTick(MinecraftServer s,ServerLevel l,Data d){
         int[][] dirs={{1,0},{0,1},{-1,0},{0,-1}};int[] grades={0,1,-1};
+        // Check short, level straight routes first. This avoids exploring thousands of
+        // alternatives for the common case, and gives icy/rough biomes a fast verdict.
+        if(search.directPossible){
+            int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
+            int distance=Math.abs(d.b.getX()-d.a.getX())+Math.abs(d.b.getZ()-d.a.getZ());
+            if(distance>0&&distance<=128&&d.a.getY()==d.b.getY()&&(dx==0||dz==0)){
+                BlockPos p=d.a.offset(dx*search.directIndex,0,dz*search.directIndex);window(l,p);if(!loaded(l,p))return;
+                Survey v=search.cache.get(p);
+                if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
+                if(v.kind<0){search.directPossible=false;d.route.clear();}
+                else{
+                    CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",v.kind);d.route.add(t);search.directIndex++;
+                    d.report="Verificando tramo recto: "+Math.min(search.directIndex,distance)+"/"+distance+" secciones.";d.setDirty();
+                    if(search.directIndex>distance){routeFound(d,distance+1);search=null;return;}
+                    return;
+                }
+            }else search.directPossible=false;
+        }
         for(int budget=0;budget<4;budget++){
             if(search.current==null){
                 while(!search.open.isEmpty()){
@@ -213,7 +234,7 @@ public final class AdaptiveRoadConstructor {
                 if(n.key.pos.equals(d.b)){
                     ArrayList<Node> nodes=new ArrayList<>();for(Node p=n;p!=null;p=p.parent)nodes.add(p);Collections.reverse(nodes);
                     for(Node p:nodes){CompoundTag t=new CompoundTag();t.putLong("pos",p.key.pos.asLong());t.putInt("kind",p.kind);d.route.add(t);}
-                    d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();d.report="Ruta encontrada: "+nodes.size()+" secciones. Calculando excavaciones y materiales.";d.setDirty();search=null;return;
+                    routeFound(d,nodes.size());search=null;return;
                 }
                 search.neighbor=0;
             }
@@ -238,6 +259,9 @@ public final class AdaptiveRoadConstructor {
             }
             advance();d.report="Exploradas "+search.expanded+" celdas; pendientes "+search.open.size()+".";
         }
+    }
+    void routeFound(Data d,int sections){
+        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y materiales.";d.setDirty();
     }
     void advance(){if(++search.neighbor>=12)search.current=null;}
     BlockState pavement(ServerLevel l,BlockPos p){

@@ -99,6 +99,17 @@ public final class AdaptiveRoadGameTests {
         });
     }
     @GameTest(template="empty",timeoutTicks=1600)
+    public static void findsShortStraightRouteAcrossFrozenSurface(GameTestHelper h){
+        BlockPos p=ground(h,5656);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++)
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.PACKED_ICE.defaultBlockState());
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"A twenty-block straight path should plan as twenty-one sections");
+            h.assertTrue(job.roads==21&&job.bridges==0&&job.tunnels==0,"Frozen level ground should remain a road");
+        },job->h.assertTrue(job.cursor==job.tasks.size(),"Finish the frozen-surface route"));
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
     public static void lightsPreserveTunnelClearanceAndAreJournaled(GameTestHelper h){
         BlockPos p=ground(h,5800);var l=h.getLevel();
         for(int x=2;x<=14;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());

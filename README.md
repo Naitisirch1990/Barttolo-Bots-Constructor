@@ -1,9 +1,9 @@
-# Barttolo Bots — Constructor 0.3.0 — pendientes suaves e iluminación
+# Barttolo Bots — Constructor 0.3.1 — rutas rectas y biomas helados
 
 El nuevo oficio se utiliza con `/bot constructor`. Asistente y Jardinero conservan sus comandos.
 
 Versión experimental para copias de prueba. Los JAR se publican en Releases únicamente después de superar la compilación y las pruebas automatizadas de servidor de GitHub Actions.
-Consultar [alcance, comandos y límites](docs/CONSTRUCTOR-0.3.0.md).
+Consultar [alcance, comandos y límites](docs/CONSTRUCTOR-0.3.1.md).
 
 ---
 
