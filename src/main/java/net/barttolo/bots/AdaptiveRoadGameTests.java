@@ -23,6 +23,14 @@ public final class AdaptiveRoadGameTests {
         var d=new AdaptiveRoadConstructor.Data();d.a=a;d.b=b;d.dimension=h.getLevel().dimension().location().toString();return d;
     }
     static void route(AdaptiveRoadConstructor.Data d,BlockPos p,int kind){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",kind);d.route.add(t);}
+    static void loadUndoChunks(GameTestHelper h,AdaptiveRoadConstructor.Data d){
+        // These tests undo synchronously in one server tick; load their small fixture
+        // first. The production executor naturally waits for chunks across ticks.
+        for(int i=0;i<d.changes.size();i++){
+            BlockPos p=BlockPos.of(d.changes.getCompound(i).getLong("pos"));
+            for(int x:new int[]{-3,3})for(int z:new int[]{-3,3})h.getLevel().getChunkAt(p.offset(x,0,z));
+        }
+    }
     static void drive(GameTestHelper h,AdaptiveRoadConstructor bot,AdaptiveRoadConstructor.Data d,Consumer<AdaptiveRoadConstructor.Data> ready,Consumer<AdaptiveRoadConstructor.Data> done){
         final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};final GameTestAssertException[] failure={null};
         h.succeedWhen(()->{
@@ -57,6 +65,7 @@ public final class AdaptiveRoadGameTests {
             var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
             h.assertTrue(AdaptiveRoadConstructor.restoreArchive(restored)&&restored.changes.size()==count,"Keep undo history through restart");
             restored.undo=count-1;restored.state="DESHACIENDO";
+            loadUndoChunks(h,restored);
             for(int i=0;i<1000&&restored.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,restored);
             h.assertTrue(restored.changes.isEmpty()&&l.getBlockState(p.east(40).below()).is(Blocks.WATER),"Undo archived bridge restores the river: "+restored.summary());
         });
@@ -76,7 +85,8 @@ public final class AdaptiveRoadGameTests {
             job->{
                 h.assertTrue(job.cursor==job.tasks.size(),"Finish the river crossing");
                 job.state="DESHACIENDO";job.undo=job.changes.size()-1;
-                for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+                loadUndoChunks(h,job);
+            for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
                 h.assertTrue(job.changes.isEmpty(),"Undo the complete bridge");
                 h.assertTrue(l.getBlockState(p.offset(3,-1,0)).is(Blocks.WATER),"Restore river water");
             });
@@ -192,6 +202,7 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(l.getBlockState(p.offset(10,5,0)).is(Blocks.GLOWSTONE),"Embedded light must be above the five-high clearance");
             for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(10,y,z)).isAir(),"Lighting must not obstruct the tunnel");
             job.undo=job.changes.size()-1;job.state="DESHACIENDO";
+            loadUndoChunks(h,job);
             for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
             h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(10,5,0)).is(Blocks.STONE),"Undo must restore the embedded light and excavations: "+job.summary());
         });
