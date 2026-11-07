@@ -82,13 +82,7 @@ public final class AdaptiveRoadConstructor {
     static boolean editable(ServerLevel l,BlockPos p){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
         BlockState b=l.getBlockState(p);
-        return b.isAir()||b.is(BlockTags.DIRT)||b.is(BlockTags.BASE_STONE_OVERWORLD)||b.is(BlockTags.LEAVES)||b.is(BlockTags.LOGS)
-            ||b.is(BlockTags.COAL_ORES)||b.is(BlockTags.IRON_ORES)||b.is(BlockTags.COPPER_ORES)||b.is(BlockTags.GOLD_ORES)||b.is(BlockTags.REDSTONE_ORES)||b.is(BlockTags.LAPIS_ORES)||b.is(BlockTags.DIAMOND_ORES)||b.is(BlockTags.EMERALD_ORES)
-            ||b.is(Blocks.SAND)||b.is(Blocks.RED_SAND)||b.is(Blocks.SANDSTONE)||b.is(Blocks.RED_SANDSTONE)||b.is(Blocks.GRAVEL)||b.is(Blocks.CLAY)
-            // Natural frozen terrain is part of the traversable surface too. Ice spikes
-            // otherwise make a short route look impossible and send A* searching far away.
-            ||b.is(Blocks.ICE)||b.is(Blocks.PACKED_ICE)||b.is(Blocks.BLUE_ICE)||b.is(Blocks.FROSTED_ICE)
-            ||b.is(Blocks.GRASS)||b.is(Blocks.TALL_GRASS)||b.is(Blocks.FERN)||b.is(Blocks.LARGE_FERN)||b.is(Blocks.SNOW)||b.is(Blocks.SNOW_BLOCK)||b.is(BlockTags.FLOWERS);
+        return b.getDestroySpeed(l,p)>=0;
     }
     static boolean bearing(ServerLevel l,BlockPos p){
         BlockState state=l.getBlockState(p);
@@ -195,14 +189,8 @@ public final class AdaptiveRoadConstructor {
             }
             BlockPos ceiling=floor.above(6);if(!l.getFluidState(ceiling).isEmpty()||l.getBlockEntity(ceiling)!=null)return null;
             if(l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
-            int n=0;BlockPos support=floor.below();
-            while(!bearing(l,support)&&n<MAX_BRIDGE_SUPPORT){
-                if(!editable(l,support)&&!waterTerrain(l.getBlockState(support)))return null;
-                if(!l.getFluidState(support).isEmpty()&&!waterTerrain(l.getBlockState(support)))return null;
-                support=support.below();n++;
-            }
-            // A deck can span air; finding a foundation is optional.
-            depth=Math.max(depth,n);if(n>1||l.getBlockState(floor).isAir())elevated=true;fill+=n;
+            // Classification only: decks do not require foundations.
+            if(water||l.getBlockState(floor).isAir())elevated=true;
         }
         return new Survey(elevated?1:roof&&cut>0?2:0,cut,fill,depth);
     }
@@ -227,7 +215,7 @@ public final class AdaptiveRoadConstructor {
                 }
             }else search.directPossible=false;
         }
-        for(int budget=0;budget<4;budget++){
+        for(int budget=0;budget<32;budget++){
             if(search.current==null){
                 while(!search.open.isEmpty()){
                     Node n=search.open.poll();if(n.cost<=search.best.getOrDefault(n.key,Double.MAX_VALUE)){search.current=n;break;}
@@ -309,14 +297,7 @@ public final class AdaptiveRoadConstructor {
                 for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 BlockState paving=stairs?Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING,ascent):pavement(l,floor);
                 if(!put(floor,paving)){halt(s,d,"Cruce a distinta altura: requiere otro trazado.");return;}
-                // Roads and ramps get shallow foundations; bridges get piers every five sections and at ends.
-                if(kind!=1||i%5==0||i==d.route.size()-1){
-                    BlockPos support=floor.below();int n=0;
-                    int maxSupport=kind==1?MAX_BRIDGE_SUPPORT:12;
-                    while(!bearing(l,support)&&n++<maxSupport){
-                        if(!put(support,Blocks.STONE_BRICKS.defaultBlockState())){halt(s,d,"Demasiados cambios en el soporte.");return;}support=support.below();
-                    }
-                }
+                // The deck spans air/water without compulsory pillars.
             }
             if(kind==1)for(int side:new int[]{-3,3}){
                 BlockPos edge=foot.offset(-dz*side,-1,dx*side);BlockPos rail=edge.above();
@@ -405,6 +386,7 @@ public final class AdaptiveRoadConstructor {
             boolean pending=d.changes.size()>0&&d.changes.getCompound(d.changes.size()-1).getInt("task")==d.cursor;
             if(pending&&matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(current.isAir()&&after.isAir()&&(old.is(BlockTags.LEAVES)||old.is(BlockTags.FLOWERS)||old.is(Blocks.GRASS)||old.is(Blocks.TALL_GRASS)||old.is(Blocks.FERN)||old.is(Blocks.LARGE_FERN))){d.cursor++;d.setDirty();continue;}
+            if(matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(!safeChange(l,p,current,after)){halt(s,d,"El terreno cambió o está protegido en "+p+". No se sobrescribió.");return;}
             if(matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}

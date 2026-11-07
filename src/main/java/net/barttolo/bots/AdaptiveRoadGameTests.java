@@ -92,7 +92,7 @@ public final class AdaptiveRoadGameTests {
         h.assertTrue(b.survey(l,p.east(12))==null,"Never excavate a chest in the survey footprint");
         l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
         for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
-        h.assertTrue(b.survey(l,p.east(18))==null,"Leaves cannot serve as a bridge foundation");
+        h.assertTrue(b.survey(l,p.east(18))!=null,"A deck may span leaves or air without a foundation");
         drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125,"Count tunnel sections and excavation"),job->{
             for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
             h.assertTrue(l.getBlockState(p.offset(4,5,0)).is(Blocks.STONE),"Keep the tunnel roof");
@@ -112,7 +112,7 @@ public final class AdaptiveRoadGameTests {
                 for(int z=-2;z<=2;z++)h.assertTrue(l.getBlockState(p.offset(x,0,z)).isSolid(),"Continuous five-wide bridge deck");
                 for(int z:new int[]{-3,3})h.assertTrue(l.getBlockState(p.offset(x,1,z)).getBlock() instanceof WallBlock,"Bridge railings stay outside the five-wide deck");
             }
-            h.assertTrue(l.getBlockState(p.offset(5,-2,0)).is(Blocks.STONE_BRICKS),"Bridge pier reaches the river bed");
+            h.assertTrue(l.getBlockState(p.offset(5,-2,0)).is(Blocks.WATER),"Bridge does not require or fill pillars");
             job.state="DESHACIENDO";job.undo=job.changes.size()-1;
             for(int i=0;i<100&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
             h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(4,0,0)).isAir(),"Undo must also handle auto-connected wall states");
@@ -130,6 +130,7 @@ public final class AdaptiveRoadGameTests {
         drive(h,b,d,job->{
             h.assertTrue(job.route.size()==21,"A twenty-block straight path should plan as twenty-one sections");
             h.assertTrue(job.roads==21&&job.bridges==0&&job.tunnels==0,"Frozen level ground should remain a road");
+            l.setBlockAndUpdate(p.below(),Blocks.DIRT.defaultBlockState()); // Terrain changes after planning must not stop placement.
         },job->h.assertTrue(job.cursor==job.tasks.size(),"Finish the frozen-surface route"));
     }
     @GameTest(template="empty",timeoutTicks=2400)
