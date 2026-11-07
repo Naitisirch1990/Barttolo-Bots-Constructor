@@ -58,7 +58,7 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(AdaptiveRoadConstructor.restoreArchive(restored)&&restored.changes.size()==count,"Keep undo history through restart");
             restored.undo=count-1;restored.state="DESHACIENDO";
             for(int i=0;i<1000&&restored.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,restored);
-            h.assertTrue(restored.changes.isEmpty()&&l.getBlockState(p.east(40).below()).is(Blocks.WATER),"Undo archived bridge restores the river");
+            h.assertTrue(restored.changes.isEmpty()&&l.getBlockState(p.east(40).below()).is(Blocks.WATER),"Undo archived bridge restores the river: "+restored.summary());
         });
     }
     @GameTest(template="empty",timeoutTicks=1600)
@@ -193,7 +193,7 @@ public final class AdaptiveRoadGameTests {
             for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(10,y,z)).isAir(),"Lighting must not obstruct the tunnel");
             job.undo=job.changes.size()-1;job.state="DESHACIENDO";
             for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
-            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(10,5,0)).is(Blocks.STONE),"Undo must restore the embedded light and excavations");
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(10,5,0)).is(Blocks.STONE),"Undo must restore the embedded light and excavations: "+job.summary());
         });
     }
     @GameTest(template="empty",timeoutTicks=200)
