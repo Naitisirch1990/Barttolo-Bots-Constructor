@@ -339,7 +339,7 @@ public final class ConstructorBuilder {
         if(!gardenTask(type)){complete(d,false);return;}
         if(taskSatisfied(level,d,task)){complete(d,true);return;}
         boolean started=task.getBoolean("started");if(!siteValid(level,d,base,type,started)){
-            if(started)defer(d,task,"decoración parcial protegida; sitio ocupado o suelo cambiado");complete(d,false);return;
+            defer(d,task,started?"decoración parcial protegida; sitio ocupado o suelo cambiado":"sitio ocupado o suelo cambiado; tarea conservada");complete(d,false);return;
         }
         task.putBoolean("started",true);pending.addAll(blueprint(level,base,type));jobFailures=0;d.setDirty();
     }
