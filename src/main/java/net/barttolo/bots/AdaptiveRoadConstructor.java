@@ -33,7 +33,7 @@ public final class AdaptiveRoadConstructor {
     private Villager worker;
     private net.minecraft.world.phys.Vec3 workerTarget;
     private int workerStuck,lightIndex;
-    private boolean lastLight,flatOblique;
+    private boolean lastLight,obliqueRaster;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
     java.util.function.LongSupplier planClock=System::nanoTime;
@@ -173,7 +173,7 @@ public final class AdaptiveRoadConstructor {
         d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 60 s.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
@@ -181,11 +181,11 @@ public final class AdaptiveRoadConstructor {
         ServerLevel l=level(s,d);if(l==null){if(!d.state.equals("VACIO"))halt(s,d,"Dimensión no disponible.");return;}
         if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){
             long now=planClock.getAsLong();if(planStartedNano==0){planStartedNano=now;nextPlanNotice=now+5_000_000_000L;}
-            if(now-planStartedNano>=30_000_000_000L){
+            if(now-planStartedNano>=60_000_000_000L){
                 String detail=d.report;
-                halt(s,d,"Límite de planificación de 30 s alcanzado. No se modificó el mundo. Desnivel A/B: "+(d.b.getY()-d.a.getY())+". Último avance: "+detail);return;
+                halt(s,d,"Límite de planificación de 60 s alcanzado. No se modificó el mundo. Desnivel A/B: "+(d.b.getY()-d.a.getY())+". Último avance: "+detail);return;
             }
-            if(now>=nextPlanNotice){nextPlanNotice=now+5_000_000_000L;s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.state+" | "+((now-planStartedNano)/1_000_000_000L)+"/30 s | "+d.report),false);}
+            if(now>=nextPlanNotice){nextPlanNotice=now+5_000_000_000L;s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.state+" | "+((now-planStartedNano)/1_000_000_000L)+"/60 s | "+d.report),false);}
         }
         if(d.previewTicks>0){if(s.getTickCount()%10==0)preview(l,d);d.previewTicks--;}
         if(d.state.equals("PLANIFICANDO")){if(search==null||planningData!=d){search=new Search(d.a,d.b);planningData=d;}for(int work=0;work<4&&d.state.equals("PLANIFICANDO");work++){searchTick(s,l,d);if(search==null||!search.directPossible)break;}return;}
@@ -230,8 +230,8 @@ public final class AdaptiveRoadConstructor {
         if(search.directPossible){
             int dx=Integer.signum(d.b.getX()-d.a.getX()),dz=Integer.signum(d.b.getZ()-d.a.getZ());
             int distance=Math.max(Math.abs(d.b.getX()-d.a.getX()),Math.abs(d.b.getZ()-d.a.getZ()));
-            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)&&((dx==0||dz==0)||d.a.getY()==d.b.getY())){
-                BlockPos p=d.a.offset((int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
+            if(distance>0&&distance<=MAX_DISTANCE&&Math.abs(d.a.getY()-d.b.getY())<=Math.max(1,distance/4)){
+                BlockPos p=new BlockPos(d.a.getX()+(int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),directY(d,search.directIndex,distance),d.a.getZ()+(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
                 if(v.kind<0){search.failure="El corredor directo no es válido en "+p+". ";search.directPossible=false;d.route.clear();}
@@ -284,13 +284,35 @@ public final class AdaptiveRoadConstructor {
             advance();d.report=search.failure+"Exploradas "+search.expanded+" celdas; pendientes "+search.open.size()+".";
         }
     }
+    static int directY(Data d,int step,int length){
+        int rise=d.b.getY()-d.a.getY();
+        // Rise near the low bank, descend near the far bank; keep the crossing high.
+        if(rise>=0)return d.a.getY()+Math.min(rise,(step+3)/4);
+        return d.b.getY()+Math.min(-rise,(length-step+3)/4);
+    }
+    static BlockPos columnFoot(Data d,int x,int z){
+        int dx=d.b.getX()-d.a.getX(),dz=d.b.getZ()-d.a.getZ();
+        boolean alongX=Math.abs(dx)>=Math.abs(dz);int length=Math.max(Math.abs(dx),Math.abs(dz));
+        int step=alongX?(x-d.a.getX())*Integer.signum(dx):(z-d.a.getZ())*Integer.signum(dz);
+        return new BlockPos(x,directY(d,Math.max(0,Math.min(length,step)),length),z);
+    }
+    BlockState rasterPaving(ServerLevel l,Data d,BlockPos floor){
+        boolean alongX=Math.abs(d.b.getX()-d.a.getX())>=Math.abs(d.b.getZ()-d.a.getZ());
+        int x=floor.getX(),z=floor.getZ(),y=floor.getY()+1;
+        if(columnFoot(d,x-(alongX?1:0),z-(alongX?0:1)).getY()<y||columnFoot(d,x+(alongX?1:0),z+(alongX?0:1)).getY()<y){
+            int sign=Integer.signum(d.b.getY()-d.a.getY());
+            Direction facing=alongX?Direction.fromDelta(Integer.signum(d.b.getX()-d.a.getX())*sign,0,0):Direction.fromDelta(0,0,Integer.signum(d.b.getZ()-d.a.getZ())*sign);
+            return stairPavement(l,floor).setValue(StairBlock.FACING,facing);
+        }
+        return pavement(l,floor);
+    }
     void routeFound(Data d,int sections){
         d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();
-        flatOblique=d.a.getY()==d.b.getY()&&d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
-        for(int i=0;i<d.route.size()&&flatOblique;i++)if(BlockPos.of(d.route.getCompound(i).getLong("pos")).getY()!=d.a.getY())flatOblique=false;
-        if(flatOblique)for(int i=0;i<d.route.size();i++){
+        obliqueRaster=d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
+        for(int i=0;i<d.route.size()&&obliqueRaster;i++){BlockPos p=BlockPos.of(d.route.getCompound(i).getLong("pos"));if(!p.equals(columnFoot(d,p.getX(),p.getZ())))obliqueRaster=false;}
+        if(obliqueRaster)for(int i=0;i<d.route.size();i++){
             BlockPos center=BlockPos.of(d.route.getCompound(i).getLong("pos"));
-            for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)walkVolume.add(center.offset(x,y,z));
+            for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)walkVolume.add(columnFoot(d,center.getX()+x,center.getZ()+z).above(y));
         }
 d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y materiales.";d.setDirty();
     }
@@ -334,21 +356,21 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             boolean stairs=before.getY()<foot.getY()||next.getY()<foot.getY();
             Direction ascent=before.getY()<foot.getY()?Direction.fromDelta(px,0,pz):Direction.fromDelta(-dx,0,-dz);
             List<BlockPos> floors=new ArrayList<>();
-            if(flatOblique||(dx!=0&&dz!=0)){
-                for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)floors.add(foot.offset(x,-1,z));
+            if(obliqueRaster||(dx!=0&&dz!=0)){
+                for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)floors.add((obliqueRaster?columnFoot(d,foot.getX()+x,foot.getZ()+z):foot.offset(x,0,z)).below());
             }else for(int w=-2;w<=2;w++)for(int along=corner?-2:0;along<=(corner?2:0);along++)
                 floors.add(foot.offset(-dz*w+dx*along,-1,dx*w+dz*along));
             for(BlockPos floor:floors){
                 for(int h=1;h<=5;h++)walkVolume.add(floor.above(h));
                 BlockPos ceiling=floor.above(6);if(l.getBlockState(ceiling).getBlock() instanceof FallingBlock)put(ceiling,Blocks.STONE_BRICKS.defaultBlockState());
-                BlockState paving=stairs?stairPavement(l,floor).setValue(StairBlock.FACING,ascent):pavement(l,floor);
+                BlockState paving=obliqueRaster?rasterPaving(l,d,floor):stairs?stairPavement(l,floor).setValue(StairBlock.FACING,ascent):pavement(l,floor);
                 if(!put(floor,paving)){halt(s,d,"Cruce a distinta altura: requiere otro trazado.");return;}
                 // Seal the deck before excavating over water.
                 for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 // The deck spans air/water without compulsory pillars.
             }
             if(kind==1)for(int side:new int[]{-3,3}){
-                BlockPos edge=foot.offset(-dz*side,-1,dx*side);BlockPos rail=edge.above();
+                BlockPos edge=foot.offset(-dz*side,-1,dx*side);if(obliqueRaster)edge=columnFoot(d,edge.getX(),edge.getZ()).below();BlockPos rail=edge.above();
                 if(walkVolume.contains(rail))continue;
                 if((!editable(l,edge)&&!waterTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
                 if(!put(edge,pavement(l,edge))||!put(rail,Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Barandilla cruza otra sección.");return;}
@@ -533,7 +555,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){planStartedNano=0;nextPlanNotice=0;flatOblique=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
+    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }

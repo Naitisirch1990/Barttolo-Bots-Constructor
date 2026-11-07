@@ -52,6 +52,37 @@ public final class AdaptiveRoadGameTests {
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
+    static void slopingObliqueCrossing(GameTestHelper h,boolean descending){
+        BlockPos p=ground(h,descending?13004:12604);var l=h.getLevel();
+        for(int x=-4;x<=153;x++)for(int z=-4;z<=15;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=8;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,descending?p.above(2):p,descending?p.offset(149,0,11):p.offset(149,2,11));
+        var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==150,"Use a direct route for a 149-by-11 crossing with two blocks of elevation");
+            h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(149).getLong("pos")).equals(job.b),"Keep both endpoint heights");
+            int last=-100;
+            for(int i=1;i<job.route.size();i++)if(BlockPos.of(job.route.getCompound(i).getLong("pos")).getY()!=BlockPos.of(job.route.getCompound(i-1).getLong("pos")).getY()){
+                h.assertTrue(i-last>=4,"Space vertical steps by four horizontal sections");last=i;
+            }
+        },job->{
+            int stairs=0;
+            for(int i=0;i<job.route.size();i++){
+                BlockPos foot=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                h.assertTrue(!l.getBlockState(foot.below()).getCollisionShape(l,foot.below()).isEmpty(),"Continuous sloped deck");
+                h.assertTrue(l.getBlockState(foot).isAir(),"No railing blocks the sloping centerline");
+                if(l.getBlockState(foot.below()).getBlock() instanceof StairBlock)stairs++;
+            }
+            h.assertTrue(stairs>=2,"Construct matching stair transitions");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void directObliqueBridgeAscendsTwoBlocks(GameTestHelper h){slopingObliqueCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void directObliqueBridgeDescendsTwoBlocks(GameTestHelper h){slopingObliqueCrossing(h,true);}
     @GameTest(template="empty",timeoutTicks=1600)
     public static void markingBPlansAndPreviewsWithoutExtraCommands(GameTestHelper h){
         BlockPos p=ground(h,11004);var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(8));
@@ -83,9 +114,9 @@ public final class AdaptiveRoadGameTests {
     @GameTest(template="empty",timeoutTicks=100)
     public static void planningDeadlineRejectsWithoutChangingWorld(GameTestHelper h){
         var b=new AdaptiveRoadConstructor();BlockPos p=h.absolutePos(new BlockPos(1,3,1));
-        var d=data(h,p,p.east(160));b.begin(d);b.planStartedNano=System.nanoTime()-31_000_000_000L;
+        var d=data(h,p,p.east(160));b.begin(d);b.planStartedNano=System.nanoTime()-61_000_000_000L;
         b.tickProject(h.getLevel().getServer(),d);
-        h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("30 s")&&d.changes.isEmpty(),"Stop overdue planning with a clear message and no changes");
+        h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("60 s")&&d.changes.isEmpty(),"Stop overdue planning with a clear message and no changes");
         b.shutdown();h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=2400)

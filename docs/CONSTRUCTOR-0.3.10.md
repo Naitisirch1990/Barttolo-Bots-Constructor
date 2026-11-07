@@ -1,0 +1,3 @@
+# Constructor 0.3.10 — pendientes oblicuas y un minuto
+
+Presupuesto conjunto de planificación/diseño: 60 segundos, con avisos cada cinco segundos. Los trazados directos aceptan cualquier ángulo con desniveles suaves (aproximadamente un bloque cada cuatro pasos). Las rampas se sitúan junto a la orilla baja para conservar alto el tablero durante el cruce. Cada columna usa una altura y una escalera coherentes para evitar solapamientos en diagonales ascendentes o descendentes. Se conservan los cuatro comandos y continuar directo. Los obstáculos sensibles y límites de edición siguen pudiendo detener una obra. Solo servidor: reemplazar JAR con el servidor detenido y recrear o continuar el proyecto interrumpido.
