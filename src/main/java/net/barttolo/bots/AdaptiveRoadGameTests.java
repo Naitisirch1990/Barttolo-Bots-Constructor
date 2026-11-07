@@ -215,6 +215,7 @@ public final class AdaptiveRoadGameTests {
             l.setBlockAndUpdate(p.offset(x,0,z),Blocks.DIRT.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,1,z),Blocks.GRASS_BLOCK.defaultBlockState());
         }
+        l.setBlockAndUpdate(p.offset(8,2,2),Blocks.STONE.defaultBlockState()); // Explicit obstacle: the early ramp may otherwise clear the hill naturally.
         var d=data(h,p,p.offset(10,2,4));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
             int previousStep=-100;
