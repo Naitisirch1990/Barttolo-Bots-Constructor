@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -29,6 +31,12 @@ jobs:
           mkdir -p build/road-checks
           javac -d build/road-checks src/main/java/net/barttolo/bots/RoadLayout.java tests/RoadLayoutChecks.java
           java -cp build/road-checks RoadLayoutChecks
+      - name: Check five-block road corridor
+        if: hashFiles('src/main/java/net/barttolo/bots/RoadCorridor.java') != ''
+        run: |
+          mkdir -p build/corridor-checks
+          javac -d build/corridor-checks src/main/java/net/barttolo/bots/RoadCorridor.java tests/RoadCorridorChecks.java
+          java -cp build/corridor-checks RoadCorridorChecks
       - name: Build Forge mod
         run: chmod +x gradlew && ./gradlew build -x test
       - name: Check constructor in Forge server
@@ -40,3 +48,12 @@ jobs:
           name: Barttolo-Bots-Constructor
           path: build/libs/*.jar
           if-no-files-found: error
+      - name: Publish tested prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && contains(github.event.head_commit.message, '[release]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view constructor-0.2.0-test-54 >/dev/null 2>&1; then
+            gh release edit constructor-0.2.0-test-54 --draft
+          fi
+          gh release create "constructor-0.2.0-test-${GITHUB_RUN_NUMBER}" build/libs/*.jar --target "$GITHUB_SHA" --prerelease --title "Constructor 0.2.0 — prueba ${GITHUB_RUN_NUMBER}" --notes-file docs/CONSTRUCTOR-0.2.0.md
