@@ -32,8 +32,12 @@ public final class AdaptiveRoadGameTests {
         }
     }
     static void drive(GameTestHelper h,AdaptiveRoadConstructor bot,AdaptiveRoadConstructor.Data d,Consumer<AdaptiveRoadConstructor.Data> ready,Consumer<AdaptiveRoadConstructor.Data> done){
+        // Each test has its own tick clock: other tests synchronously generate large
+        // fixtures on this same server thread. The deadline has a separate real-clock test.
+        final long[] testTime={1};bot.planClock=()->testTime[0];bot.planStartedNano=0;
         final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};final GameTestAssertException[] failure={null};
         h.succeedWhen(()->{
+            testTime[0]+=50_000_000L;
             if(failure[0]!=null)throw failure[0];
             var job=active[0];
             if(job.state.equals("RECHAZADO")||job.state.equals("PAUSADO")){bot.shutdown();h.assertTrue(false,"Adaptive road halted: "+job.summary());return;}

@@ -36,6 +36,7 @@ public final class AdaptiveRoadConstructor {
     private boolean lastLight,flatOblique;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
+    java.util.function.LongSupplier planClock=System::nanoTime;
     long planStartedNano;
     private long nextPlanNotice;
     private int recipeIndex,previewCursor;
@@ -167,14 +168,14 @@ public final class AdaptiveRoadConstructor {
         d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=System.nanoTime();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
     void tickProject(MinecraftServer s,Data d){
         ServerLevel l=level(s,d);if(l==null){if(!d.state.equals("VACIO"))halt(s,d,"Dimensión no disponible.");return;}
         if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){
-            long now=System.nanoTime();if(planStartedNano==0){planStartedNano=now;nextPlanNotice=now+5_000_000_000L;}
+            long now=planClock.getAsLong();if(planStartedNano==0){planStartedNano=now;nextPlanNotice=now+5_000_000_000L;}
             if(now-planStartedNano>=30_000_000_000L){
                 String detail=d.report;
                 halt(s,d,"Límite de planificación de 30 s alcanzado. No se modificó el mundo. Desnivel A/B: "+(d.b.getY()-d.a.getY())+". Último avance: "+detail);return;
