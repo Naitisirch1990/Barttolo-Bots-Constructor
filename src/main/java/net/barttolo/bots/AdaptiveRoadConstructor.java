@@ -129,7 +129,6 @@ public final class AdaptiveRoadConstructor {
             case "pausar":case "detener":
                 if(Set.of("PLANIFICANDO","DISEÑANDO").contains(d.state)){d.tasks.clear();d.route.clear();}
                 if(d.state.equals("DESHACIENDO"))d.state="DESHACER_PAUSADO";
-            if(t.getInt("planVersion")<3&&!d.route.isEmpty()&&d.changes.isEmpty()){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="CONFIGURANDO";d.report="Plan anterior pendiente: volvé a planificar para aplicar pendientes suaves y luces.";}
                 else if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))d.state="PAUSADO";
                 reset();break;
             case "continuar":
