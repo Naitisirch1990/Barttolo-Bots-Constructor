@@ -36,6 +36,8 @@ public final class AdaptiveRoadConstructor {
     private boolean lastLight,flatOblique;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
+    long planStartedNano;
+    private long nextPlanNotice;
     private int recipeIndex,previewCursor;
     private BlockPos recipeWorker;
     private final Map<BlockPos,BlockPos> workers=new HashMap<>();
@@ -165,14 +167,22 @@ public final class AdaptiveRoadConstructor {
         d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";d.report="Buscando por cuadrícula 3D; analiza rodeos, desniveles, excavación y soporte.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=System.nanoTime();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 30 s.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
     void tickProject(MinecraftServer s,Data d){
         ServerLevel l=level(s,d);if(l==null){if(!d.state.equals("VACIO"))halt(s,d,"Dimensión no disponible.");return;}
+        if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){
+            long now=System.nanoTime();if(planStartedNano==0){planStartedNano=now;nextPlanNotice=now+5_000_000_000L;}
+            if(now-planStartedNano>=30_000_000_000L){
+                String detail=d.report;
+                halt(s,d,"Límite de planificación de 30 s alcanzado. No se modificó el mundo. Desnivel A/B: "+(d.b.getY()-d.a.getY())+". Último avance: "+detail);return;
+            }
+            if(now>=nextPlanNotice){nextPlanNotice=now+5_000_000_000L;s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.state+" | "+((now-planStartedNano)/1_000_000_000L)+"/30 s | "+d.report),false);}
+        }
         if(d.previewTicks>0){if(s.getTickCount()%10==0)preview(l,d);d.previewTicks--;}
-        if(d.state.equals("PLANIFICANDO")){if(search==null||planningData!=d){search=new Search(d.a,d.b);planningData=d;}searchTick(s,l,d);return;}
+        if(d.state.equals("PLANIFICANDO")){if(search==null||planningData!=d){search=new Search(d.a,d.b);planningData=d;}for(int work=0;work<4&&d.state.equals("PLANIFICANDO");work++){searchTick(s,l,d);if(search==null||!search.directPossible)break;}return;}
         if(d.state.equals("DISEÑANDO")){designTick(s,l,d);return;}
         if(d.state.equals("CONSTRUYENDO")){walkWorker(l);buildTick(s,l,d);return;}
         if(d.state.equals("DESHACIENDO")){undoTick(s,l,d);return;}
@@ -218,7 +228,7 @@ public final class AdaptiveRoadConstructor {
                 BlockPos p=d.a.offset((int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),(int)Math.round((double)(d.b.getY()-d.a.getY())*search.directIndex/distance),(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
-                if(v.kind<0){search.directPossible=false;d.route.clear();}
+                if(v.kind<0){search.failure="El corredor directo no es válido en "+p+". ";search.directPossible=false;d.route.clear();}
                 else{
                     CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",v.kind);d.route.add(t);search.directIndex++;
                     d.report="Verificando tramo recto: "+Math.min(search.directIndex,distance)+"/"+distance+" secciones.";d.setDirty();
@@ -265,7 +275,7 @@ public final class AdaptiveRoadConstructor {
                     }
                 }
             }
-            advance();d.report="Exploradas "+search.expanded+" celdas; pendientes "+search.open.size()+".";
+            advance();d.report=search.failure+"Exploradas "+search.expanded+" celdas; pendientes "+search.open.size()+".";
         }
     }
     void routeFound(Data d,int sections){
@@ -506,7 +516,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){flatOblique=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
+    void reset(){planStartedNano=0;nextPlanNotice=0;flatOblique=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }

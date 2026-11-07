@@ -48,21 +48,29 @@ public final class AdaptiveRoadGameTests {
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void planningDeadlineRejectsWithoutChangingWorld(GameTestHelper h){
+        var b=new AdaptiveRoadConstructor();BlockPos p=h.absolutePos(new BlockPos(1,3,1));
+        var d=data(h,p,p.east(160));b.begin(d);b.planStartedNano=System.nanoTime()-31_000_000_000L;
+        b.tickProject(h.getLevel().getServer(),d);
+        h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("30 s")&&d.changes.isEmpty(),"Stop overdue planning with a clear message and no changes");
+        b.shutdown();h.succeed();
+    }
     @GameTest(template="empty",timeoutTicks=2400)
     public static void arbitraryAngleLongCrossingCutsThroughHill(GameTestHelper h){
         BlockPos p=ground(h,10004);var l=h.getLevel();
-        for(int x=-4;x<=84;x++)for(int z=-4;z<=35;z++){
+        for(int x=-4;x<=164;x++)for(int z=-4;z<=65;z++){
             l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
             for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),x>=35&&x<=45?Blocks.STONE.defaultBlockState():Blocks.AIR.defaultBlockState());
         }
-        var d=data(h,p,p.offset(80,0,31));var b=new AdaptiveRoadConstructor();b.begin(d);
+        var d=data(h,p,p.offset(160,0,61));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
-            h.assertTrue(job.route.size()==81&&job.cut>0,"Direct arbitrary-angle route must cut the hill");
-            h.assertTrue(BlockPos.of(job.route.getCompound(80).getLong("pos")).equals(job.b),"Reach the selected B");
+            h.assertTrue(job.route.size()==161&&job.cut>0,"Direct arbitrary-angle route must cut the hill");
+            h.assertTrue(BlockPos.of(job.route.getCompound(160).getLong("pos")).equals(job.b),"Reach the selected B");
         },job->{
-            for(int i=0;i<=80;i++){
-                int z=(int)Math.round(31.0*i/80);
+            for(int i=0;i<=160;i++){
+                int z=(int)Math.round(61.0*i/160);
                 for(int x=-2;x<=2;x++)for(int side=-2;side<=2;side++){
                     h.assertTrue(l.getBlockState(p.offset(i+x,-1,z+side)).isSolid(),"Continuous oblique deck");
                     h.assertTrue(l.getBlockState(p.offset(i+x,0,z+side)).isAir(),"No railing or hill obstructs the corridor");
