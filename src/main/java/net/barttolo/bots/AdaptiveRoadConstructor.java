@@ -201,7 +201,7 @@ public final class AdaptiveRoadConstructor {
                 if(!l.getFluidState(support).isEmpty()&&!waterTerrain(l.getBlockState(support)))return null;
                 support=support.below();n++;
             }
-            if(n>=MAX_BRIDGE_SUPPORT||l.getBlockEntity(support)!=null||l.getBlockState(support).is(Blocks.BEDROCK))return null;
+            // A deck can span air; finding a foundation is optional.
             depth=Math.max(depth,n);if(n>1||l.getBlockState(floor).isAir())elevated=true;fill+=n;
         }
         return new Survey(elevated?1:roof&&cut>0?2:0,cut,fill,depth);
@@ -397,7 +397,7 @@ public final class AdaptiveRoadConstructor {
     }
     BlockState read(ServerLevel l,CompoundTag t,String key){return NbtUtils.readBlockState(l.holderLookup(Registries.BLOCK),t.getCompound(key));}
     void buildTick(MinecraftServer s,ServerLevel l,Data d){
-        if(worker!=null&&workerTarget!=null&&worker.position().distanceToSqr(workerTarget)>2.25&&workerStuck<40)return;
+        // The visual worker must not delay block placement.
         int edits=0,checked=0;
         while(d.cursor<d.tasks.size()&&edits<8&&checked++<64){
             CompoundTag task=d.tasks.getCompound(d.cursor);BlockPos p=BlockPos.of(task.getLong("pos"));window(l,p);if(!loaded(l,p))return;
@@ -405,12 +405,12 @@ public final class AdaptiveRoadConstructor {
             boolean pending=d.changes.size()>0&&d.changes.getCompound(d.changes.size()-1).getInt("task")==d.cursor;
             if(pending&&matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(current.isAir()&&after.isAir()&&(old.is(BlockTags.LEAVES)||old.is(BlockTags.FLOWERS)||old.is(Blocks.GRASS)||old.is(Blocks.TALL_GRASS)||old.is(Blocks.FERN)||old.is(Blocks.LARGE_FERN))){d.cursor++;d.setDirty();continue;}
-            if(!current.equals(old)||!safeChange(l,p,current,after)){halt(s,d,"El terreno cambió o está protegido en "+p+". No se sobrescribió.");return;}
-            if(old.equals(after)){d.cursor++;d.setDirty();continue;}
+            if(!safeChange(l,p,current,after)){halt(s,d,"El terreno cambió o está protegido en "+p+". No se sobrescribió.");return;}
+            if(matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
             if(after.isAir())for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
             if(!after.isAir()&&!l.getEntities((net.minecraft.world.entity.Entity)null,new net.minecraft.world.phys.AABB(p),e->e!=worker&&e.isAlive()&&!e.isSpectator()).isEmpty()){halt(s,d,"Una entidad ocupa "+p+"; movela y continuá.");return;}
-            if(!pending){CompoundTag change=task.copy();change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
+            if(!pending){CompoundTag change=task.copy();change.put("before",NbtUtils.writeBlockState(current));change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
             d.cursor++;d.setDirty();edits++;if(edits==1)showWorker(l,BlockPos.of(task.getLong("worker")));
         }
