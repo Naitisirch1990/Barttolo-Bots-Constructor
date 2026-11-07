@@ -101,8 +101,11 @@ public final class AdaptiveRoadGameTests {
     @GameTest(template="empty",timeoutTicks=1600)
     public static void findsShortStraightRouteAcrossFrozenSurface(GameTestHelper h){
         BlockPos p=ground(h,5656);var l=h.getLevel();
-        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++)
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++){
+            for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
             l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.PACKED_ICE.defaultBlockState());
+            for(int y=0;y<=9;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
         var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
             h.assertTrue(job.route.size()==21,"A twenty-block straight path should plan as twenty-one sections");
