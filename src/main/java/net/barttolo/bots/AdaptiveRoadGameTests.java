@@ -66,6 +66,43 @@ public final class AdaptiveRoadGameTests {
         return p;
     }
     @GameTest(template="empty",timeoutTicks=2400)
+    public static void straight75BlockMineTunnelReplacesAndRestoresChestAndSpawner(GameTestHelper h){
+        var l=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(16204,0,0));
+        BlockPos p=new BlockPos(origin.getX(),31,32408);
+        for(int x=-3;x<=78;x++)for(int z=-3;z<=3;z++)for(int y=-2;y<=7;y++)
+            l.setBlock(p.offset(x,y,z),Blocks.STONE.defaultBlockState(),2);
+        BlockPos chest=p.offset(2,1,0),spawner=p.offset(38,2,1);
+        l.setBlock(chest,Blocks.CHEST.defaultBlockState(),2);
+        ((net.minecraft.world.level.block.entity.ChestBlockEntity)l.getBlockEntity(chest)).setItem(0,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND,7));
+        l.setBlock(spawner,Blocks.SPAWNER.defaultBlockState(),2);
+        CompoundTag spawnerData=l.getBlockEntity(spawner).saveWithFullMetadata();
+        var d=data(h,p,p.east(75));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==76,"Keep a straight 75-block tunnel through mine block entities");
+            for(int i=1;i<job.route.size();i++)h.assertTrue(BlockPos.of(job.route.getCompound(i).getLong("pos")).equals(p.east(i)),"Do not detour around replaceable mine blocks");
+        },job->{
+            h.assertTrue(l.getBlockState(chest).isAir()&&l.getBlockState(spawner).isAir(),"Remove chest and spawner from the passage");
+            for(int x=5;x<=70;x+=5)h.assertTrue(l.getBlockState(p.offset(x,5,0)).is(Blocks.GLOWSTONE),"Five-block ceiling light spacing");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty(),"Undo the complete mine tunnel");
+            var restored=(net.minecraft.world.level.block.entity.ChestBlockEntity)l.getBlockEntity(chest);
+            h.assertTrue(restored!=null&&restored.getItem(0).is(net.minecraft.world.item.Items.DIAMOND)&&restored.getItem(0).getCount()==7,"Restore chest inventory without dropping duplicate contents");
+            h.assertTrue(l.getBlockEntity(spawner)!=null&&l.getBlockEntity(spawner).saveWithFullMetadata().equals(spawnerData),"Restore spawner data");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void unbreakableDirectObstacleReportsExactBlockWithoutSearching(GameTestHelper h){
+        BlockPos p=ground(h,16604);var l=h.getLevel();BlockPos obstacle=p.offset(2,1,0);
+        l.setBlock(obstacle,Blocks.BEDROCK.defaultBlockState(),2);
+        var d=data(h,p,p.east(15));var b=new AdaptiveRoadConstructor();b.begin(d);
+        h.succeedWhen(()->{
+            b.tickProject(l.getServer(),d);
+            h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("minecraft:bedrock")&&d.report.contains(obstacle.toString())&&d.changes.isEmpty(),"Immediately identify the exact unbreakable block without changing the world");
+            b.shutdown();
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
     public static void deepWaterPiersUseSteppedInvertedStairCapsAndUndoPlants(GameTestHelper h){
         BlockPos p=liquidBasin(h,14604,80,false,false);var l=h.getLevel();
         // A pre-existing deck must also be recognized as suspended.
@@ -347,7 +384,7 @@ public final class AdaptiveRoadGameTests {
         });
     }
     @GameTest(template="empty",timeoutTicks=1600)
-    public static void tunnelHasFiveByFiveClearanceAndProtectedChestIsRejected(GameTestHelper h){
+    public static void tunnelHasFiveByFiveClearanceAndAllowsReplaceableChest(GameTestHelper h){
         BlockPos p=ground(h,5256);var l=h.getLevel();
         for(int x=2;x<=6;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
         // Exercise water and lava inside the corridor, across one side, and in the roof.
@@ -359,7 +396,7 @@ public final class AdaptiveRoadGameTests {
         var d=data(h,p,p.east(8));var b=new AdaptiveRoadConstructor();b.begin(d);
 
         l.setBlockAndUpdate(p.offset(12,0,0),Blocks.CHEST.defaultBlockState());
-        h.assertTrue(b.survey(l,p.east(12))==null,"Never excavate a chest in the survey footprint");
+        h.assertTrue(b.survey(l,p.east(12))!=null,"Allow removing a replaceable chest from the corridor");
         l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
         for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
         h.assertTrue(b.survey(l,p.east(18))!=null,"A deck may span leaves or air without a foundation");
@@ -440,6 +477,7 @@ public final class AdaptiveRoadGameTests {
             h.assertTrue(ceiling,"Use an embedded ceiling light inside the tunnel");
         },job->{
             h.assertTrue(l.getBlockState(p.offset(10,5,0)).is(Blocks.GLOWSTONE),"Embedded light must be above the five-high clearance");
+            h.assertTrue(l.getBlockState(p.offset(5,5,0)).is(Blocks.GLOWSTONE),"Tunnel ceiling lights are five blocks apart");
             for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(10,y,z)).isAir(),"Lighting must not obstruct the tunnel");
             job.undo=job.changes.size()-1;job.state="DESHACIENDO";
             loadUndoChunks(h,job);

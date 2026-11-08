@@ -38,6 +38,7 @@ public final class AdaptiveRoadConstructor {
     private boolean lastLight,obliqueRaster;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
+    private String surveyFailure="";
     java.util.function.LongSupplier planClock=System::nanoTime;
     long planStartedNano;
     private long nextPlanNotice;
@@ -90,7 +91,7 @@ public final class AdaptiveRoadConstructor {
     }
     static double heuristic(BlockPos a,BlockPos b){return Math.max(Math.abs(a.getX()-b.getX())+Math.abs(a.getZ()-b.getZ()),Math.abs(a.getY()-b.getY()));}
     static boolean editable(ServerLevel l,BlockPos p){
-        if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
+        if(!l.getWorldBorder().isWithinBounds(p))return false;
         BlockState b=l.getBlockState(p);
         return b.getDestroySpeed(l,p)>=0;
     }
@@ -214,23 +215,28 @@ public final class AdaptiveRoadConstructor {
         return l.getBlockEntity(p)==null&&l.getFluidState(p).isEmpty()&&!state.is(BlockTags.LEAVES)&&!state.is(BlockTags.LOGS)&&state.isFaceSturdy(l,p,Direction.UP);
     }
     Survey survey(ServerLevel l,BlockPos foot){
-        if(foot.getY()<l.getMinBuildHeight()+14||foot.getY()+6>=l.getMaxBuildHeight())return null;
+        surveyFailure="";
+        if(foot.getY()<l.getMinBuildHeight()+1||foot.getY()+5>=l.getMaxBuildHeight())return rejectSurvey(l,foot,"fuera de la altura construible");
         int cut=0,fill=0,depth=0;boolean elevated=false,roof=false;
         for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++){
             BlockPos floor=foot.offset(x,-1,z);boolean water=liquidTerrain(l.getBlockState(floor));
-            if(!water&&(!editable(l,floor)||!l.getFluidState(floor).isEmpty()))return null;
+            if(!water&&(!editable(l,floor)||!l.getFluidState(floor).isEmpty()))return rejectSurvey(l,floor,"base no modificable");
             if(water)elevated=true;
             for(int h=1;h<=5;h++){
                 // Water and lava inside the tunnel corridor can be replaced after the shell is built.
-                BlockPos q=floor.above(h);if(!editable(l,q))return null;
+                BlockPos q=floor.above(h);if(!editable(l,q))return rejectSurvey(l,q,"bloque no modificable en el paso");
                 if(!l.getBlockState(q).isAir())cut++;
             }
-            BlockPos ceiling=floor.above(6);if(l.getBlockEntity(ceiling)!=null)return null;
+            BlockPos ceiling=floor.above(6);if(!editable(l,ceiling))return rejectSurvey(l,ceiling,"techo no modificable");
             if(!l.getFluidState(ceiling).isEmpty()||l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
             // Classification only: decks do not require foundations.
             if(water||l.getBlockState(floor).isAir()||!pierBearing(l,floor.below()))elevated=true;
         }
         return new Survey(elevated?1:roof&&cut>0?2:0,cut,fill,depth);
+    }
+    Survey rejectSurvey(ServerLevel l,BlockPos p,String reason){
+        surveyFailure=reason+": "+net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(l.getBlockState(p).getBlock())+" en "+p;
+        return null;
     }
     void searchTick(MinecraftServer s,ServerLevel l,Data d){
         int[][] dirs={{1,0},{0,1},{-1,0},{0,-1}};int[] grades={0,1,-1};
@@ -244,7 +250,7 @@ public final class AdaptiveRoadConstructor {
                 BlockPos p=new BlockPos(d.a.getX()+(int)Math.round((double)(d.b.getX()-d.a.getX())*search.directIndex/distance),directY(d,search.directIndex,distance),d.a.getZ()+(int)Math.round((double)(d.b.getZ()-d.a.getZ())*search.directIndex/distance));window(l,p);if(!loaded(l,p))return;
                 Survey v=search.cache.get(p);
                 if(v==null){v=survey(l,p);if(v==null)v=new Survey(-1,0,0,0);search.cache.put(p,v);}
-                if(v.kind<0){search.failure="El corredor directo no es válido en "+p+". ";search.directPossible=false;d.route.clear();}
+                if(v.kind<0){halt(s,d,"No se puede abrir el corredor directo: "+(surveyFailure.isEmpty()?"obstáculo en "+p:surveyFailure)+". Marcá otro punto para evitarlo.");return;}
                 else{
                     CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",v.kind);d.route.add(t);search.directIndex++;
                     d.report="Verificando tramo recto: "+Math.min(search.directIndex,distance)+"/"+distance+" secciones.";d.setDirty();
@@ -409,9 +415,10 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         }
         if(lightIndex<d.route.size()||!lastLight){
             int i=lightIndex;
-            if(i>=d.route.size()){lastLight=true;i=d.route.size()-1;if(i<4||i%10<4)return;}
+            if(i>=d.route.size()){lastLight=true;i=d.route.size()-1;if(i<3||i%5<3)return;}
+            if(!lastLight&&d.route.getCompound(i).getInt("kind")!=2&&i%10!=0){lightIndex=i+5;return;}
             BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot)){if(lastLight)lastLight=false;return;}
-            recipeWorker=foot;planLight(l,d,i);lightIndex=i+10;return;
+            recipeWorker=foot;planLight(l,d,i);lightIndex=i+5;return;
         }
         if(pierIndex<d.route.size()){
             for(int budget=0;budget<8&&pierIndex<d.route.size();budget++){
@@ -438,6 +445,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             BlockState old=l.getBlockState(p),after=e.getValue();
             if(!safeChange(l,p,old,after)){halt(s,d,"Bloque sensible o líquido en el diseño: "+p);return;}
             CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.put("before",NbtUtils.writeBlockState(old));t.put("after",NbtUtils.writeBlockState(after));t.putBoolean("sealedTunnelInterior",sealedTunnelInterior.contains(p));
+            if(l.getBlockEntity(p)!=null)t.put("beforeBlockEntity",l.getBlockEntity(p).saveWithFullMetadata());
             t.putLong("worker",workers.getOrDefault(p,p.above()).asLong());d.tasks.add(t);if(!old.equals(after)){if(after.isAir())d.cut++;else d.fill++;}
         }
         if(d.tasks.size()==recipe.size()){
@@ -582,7 +590,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         for(BlockPos p:pair){recipe.put(p,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(p,recipeWorker);recordLight(d,p,"inlay");}
     }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
-        if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
+        if(!l.getWorldBorder().isWithinBounds(p))return false;
         if(liquidTerrain(before)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.WATER)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.LAVA))return editable(l,p);
         return editable(l,p)&&l.getFluidState(p).isEmpty();
     }
@@ -602,7 +610,8 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
             if(after.isAir()&&!task.getBoolean("sealedTunnelInterior"))for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
             if(!after.isAir()&&!clearObstructions(l,p)){halt(s,d,"Un jugador ocupa "+p+"; apartate y usá continuar.");return;}
-            if(!pending){CompoundTag change=task.copy();change.put("before",NbtUtils.writeBlockState(current));change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
+            if(!pending){CompoundTag change=task.copy();change.put("before",NbtUtils.writeBlockState(current));change.putInt("task",d.cursor);change.remove("beforeBlockEntity");if(l.getBlockEntity(p)!=null)change.put("beforeBlockEntity",l.getBlockEntity(p).saveWithFullMetadata());d.changes.add(change);d.setDirty();}
+            if(l.getBlockEntity(p)!=null&&current.getBlock()!=after.getBlock())l.removeBlockEntity(p);
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
             d.cursor++;d.setDirty();edits++;if(edits==1)showWorker(l,BlockPos.of(task.getLong("worker")));
         }
@@ -625,12 +634,15 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(d.undo<0){d.changes.clear();d.tasks.clear();d.route.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.state="CONFIGURANDO";d.report="Terreno restaurado.";d.setDirty();reset();return;}
             CompoundTag t=d.changes.getCompound(d.undo);BlockPos p=BlockPos.of(t.getLong("pos"));window(l,p);if(!loaded(l,p))return;
             BlockState old=read(l,t,"before"),after=read(l,t,"after"),current=l.getBlockState(p);
-            if(current.equals(old)){d.undo--;d.setDirty();continue;}
+            if(current.equals(old)){restoreBlockEntity(l,p,t);d.undo--;d.setDirty();continue;}
             if(!matches(current,after)||l.getBlockEntity(p)!=null||!allowed(l,p)){d.state="DESHACER_PAUSADO";d.report="Conflicto o protección al restaurar "+p;d.setDirty();reset();return;}
             if(!old.isAir()&&!clearObstructions(l,p)){d.state="DESHACER_PAUSADO";d.report="Jugador en el volumen a restaurar: "+p+"; apartate y usá continuar.";d.setDirty();reset();return;}
             if(!l.setBlock(p,old,3)){d.state="DESHACER_PAUSADO";d.report="Falló restauración "+p;d.setDirty();reset();return;}
-            d.undo--;d.setDirty();
+            restoreBlockEntity(l,p,t);d.undo--;d.setDirty();
         }
+    }
+    void restoreBlockEntity(ServerLevel l,BlockPos p,CompoundTag task){
+        if(task.contains("beforeBlockEntity")&&l.getBlockEntity(p)!=null){l.getBlockEntity(p).load(task.getCompound("beforeBlockEntity"));l.getBlockEntity(p).setChanged();l.sendBlockUpdated(p,l.getBlockState(p),l.getBlockState(p),3);}
     }
     void preview(ServerLevel l,Data d){
         int count=0;
