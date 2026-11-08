@@ -42,7 +42,7 @@ public final class AdaptiveRoadConstructor {
     java.util.function.LongSupplier planClock=System::nanoTime;
     long planStartedNano;
     private long nextPlanNotice;
-    private int recipeIndex,previewCursor;
+    private int recipeIndex,previewCursor,coverSurveyIndex;
     private BlockPos recipeWorker;
     private final Map<BlockPos,BlockPos> workers=new HashMap<>();
     private final Map<Long,BlockPos> deckColumns=new HashMap<>();
@@ -324,7 +324,7 @@ public final class AdaptiveRoadConstructor {
         return pavement(l,floor);
     }
     void routeFound(Data d,int sections){
-        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;pierIndex=0;pierDistance=15;lastLight=false;walkVolume.clear();recipe.clear();deckColumns.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;
+        d.state="DISEÑANDO";recipeIndex=0;coverSurveyIndex=0;lightIndex=0;pierIndex=0;pierDistance=15;lastLight=false;walkVolume.clear();recipe.clear();deckColumns.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;
         obliqueRaster=d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
         for(int i=0;i<d.route.size()&&obliqueRaster;i++){BlockPos p=BlockPos.of(d.route.getCompound(i).getLong("pos"));if(!p.equals(columnFoot(d,p.getX(),p.getZ())))obliqueRaster=false;}
         if(obliqueRaster)for(int i=0;i<d.route.size();i++){
@@ -363,12 +363,23 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     }
     void designTick(MinecraftServer s,ServerLevel l,Data d){
         if(planningData!=d){halt(s,d,"El diseño fue interrumpido. Usá crear y marcá A/B otra vez.");return;}
+        if(coverSurveyIndex<d.route.size()){
+            for(int budget=0;budget<8&&coverSurveyIndex<d.route.size();budget++){
+                int i=coverSurveyIndex;BlockPos p=BlockPos.of(d.route.getCompound(i).getLong("pos"));
+                window(l,p);if(!loaded(l,p))return;
+                if(d.route.getCompound(i).getInt("kind")==1&&liquidAboveDeck(l,p))
+                    for(int j=Math.max(0,i-1);j<=Math.min(d.route.size()-1,i+1);j++)
+                        if(d.route.getCompound(j).getInt("kind")==1)d.route.getCompound(j).putBoolean("liquidCover",true);
+                coverSurveyIndex++;
+            }
+            return;
+        }
         if(recipeIndex<d.route.size()){
             int i=recipeIndex;BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot))return;
             BlockPos before=BlockPos.of(d.route.getCompound(Math.max(0,i-1)).getLong("pos"));
             BlockPos next=BlockPos.of(d.route.getCompound(Math.min(d.route.size()-1,i+1)).getLong("pos"));
             int dx=Integer.signum(next.getX()-foot.getX()),dz=Integer.signum(next.getZ()-foot.getZ());if(dx==0&&dz==0){dx=Integer.signum(foot.getX()-before.getX());dz=Integer.signum(foot.getZ()-before.getZ());}
-            recipeWorker=foot;int kind=d.route.getCompound(i).getInt("kind");if(kind==1)d.bridges++;else if(kind==2)d.tunnels++;else d.roads++;
+            recipeWorker=foot;int kind=d.route.getCompound(i).getInt("kind");boolean enclosed=kind==2||d.route.getCompound(i).getBoolean("liquidCover");if(kind==1)d.bridges++;else if(kind==2)d.tunnels++;else d.roads++;
             int px=Integer.signum(foot.getX()-before.getX()),pz=Integer.signum(foot.getZ()-before.getZ());boolean corner=i>0&&i<d.route.size()-1&&(px!=dx||pz!=dz);
             boolean stairs=before.getY()<foot.getY()||next.getY()<foot.getY();
             Direction ascent=before.getY()<foot.getY()?Direction.fromDelta(px,0,pz):Direction.fromDelta(-dx,0,-dz);
@@ -386,16 +397,18 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
                 // Seal the deck before excavating over water.
                 for(int h=5;h>=1;h--){
                     BlockPos clear=floor.above(h);
-                    if(kind==2){tunnelExcavations.add(clear);sealedTunnelInterior.add(clear);}
+                    if(enclosed){tunnelExcavations.add(clear);sealedTunnelInterior.add(clear);}
                     else if(!l.getBlockState(clear).isAir()&&!put(clear,Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 }
                 // The deck spans air/water without compulsory pillars.
             }
-            if(kind==2&&!planTunnelShell(s,l,d,foot,dx,dz))return;
-            if(kind==1)for(int side:new int[]{-3,3}){
+            if(enclosed&&!planTunnelShell(s,l,d,foot,dx,dz))return;
+            if(d.route.getCompound(i).getBoolean("liquidCover")&&(i==0||i==d.route.size()-1||!d.route.getCompound(i-1).getBoolean("liquidCover")||!d.route.getCompound(i+1).getBoolean("liquidCover")))
+                if(!planGalleryRoofLip(s,l,d,foot,dx,dz))return;
+            if(kind==1&&!enclosed)for(int side:new int[]{-3,3}){
                 BlockPos edge=foot.offset(-dz*side,-1,dx*side);if(obliqueRaster)edge=columnFoot(d,edge.getX(),edge.getZ()).below();BlockPos rail=edge.above();
                 if(walkVolume.contains(rail))continue;
-                if((!editable(l,edge)&&!liquidTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
+                if(!safeChange(l,edge,l.getBlockState(edge),pavement(l,edge))||!safeChange(l,rail,l.getBlockState(rail),Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Un bloque no modificable impide la barandilla en "+rail);return;}
                 if(!put(edge,pavement(l,edge))||!put(rail,Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Barandilla cruza otra sección.");return;}
                 deckColumns.put(net.minecraft.world.level.ChunkPos.asLong(edge.getX(),edge.getZ()),edge);
             }
@@ -416,7 +429,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         if(lightIndex<d.route.size()||!lastLight){
             int i=lightIndex;
             if(i>=d.route.size()){lastLight=true;i=d.route.size()-1;if(i<3||i%5<3)return;}
-            if(!lastLight&&d.route.getCompound(i).getInt("kind")!=2&&i%10!=0){lightIndex=i+5;return;}
+            if(!lastLight&&d.route.getCompound(i).getInt("kind")!=2&&!d.route.getCompound(i).getBoolean("liquidCover")&&i%10!=0){lightIndex=i+5;return;}
             BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot)){if(lastLight)lastLight=false;return;}
             recipeWorker=foot;planLight(l,d,i);lightIndex=i+5;return;
         }
@@ -449,9 +462,43 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             t.putLong("worker",workers.getOrDefault(p,p.above()).asLong());d.tasks.add(t);if(!old.equals(after)){if(after.isAir())d.cut++;else d.fill++;}
         }
         if(d.tasks.size()==recipe.size()){
+            if(!prepareSealedExcavations(s,l,d))return;
             d.previewTicks=200;d.state=d.resumeAfterPlan?"CONSTRUYENDO":"CONFIRMADO";d.resumeAfterPlan=false;d.report=d.state.equals("CONSTRUYENDO")?"Plan recuperado. Construcción reanudada.":"Plan calculado. Vista automática durante 10 segundos; usá iniciar para construir.";d.setDirty();recipe.clear();sealedTunnelInterior.clear();release();
             s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);
         }
+    }
+    boolean liquidAboveDeck(ServerLevel l,BlockPos foot){
+        for(int x=-3;x<=3;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=5;y++)
+            if(!l.getFluidState(foot.offset(x,y,z)).isEmpty())return true;
+        return false;
+    }
+    boolean prepareSealedExcavations(MinecraftServer s,ServerLevel l,Data d){
+        ListTag solidTasks=new ListTag(),plugs=new ListTag(),cuts=new ListTag();
+        BlockState plugState=Blocks.STONE_BRICKS.defaultBlockState();
+        for(int i=0;i<d.tasks.size();i++){
+            CompoundTag task=d.tasks.getCompound(i);
+            if(!read(l,task,"after").isAir()){solidTasks.add(task);continue;}
+            if(task.getBoolean("sealedTunnelInterior")){
+                // Replace all interior sources and flowing liquid with temporary solid
+                // plugs before clearing the passage. This prevents water source regeneration.
+                CompoundTag plug=task.copy();plug.put("after",NbtUtils.writeBlockState(plugState));plug.putBoolean("sealedTunnelInterior",false);plugs.add(plug);
+                task=task.copy();task.put("before",NbtUtils.writeBlockState(plugState));task.remove("beforeBlockEntity");
+            }
+            cuts.add(task);
+        }
+        if(solidTasks.size()+plugs.size()+cuts.size()>MAX_EDITS){halt(s,d,"El revestimiento y drenaje superan el límite de 250000 cambios.");return false;}
+        solidTasks.addAll(plugs);solidTasks.addAll(cuts);d.tasks.clear();d.tasks.addAll(solidTasks);d.cut=d.fill=0;
+        for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.tasks.getCompound(i);BlockState after=read(l,t,"after");if(!read(l,t,"before").equals(after)){if(after.isAir())d.cut++;else d.fill++;}}
+        return true;
+    }
+    boolean planGalleryRoofLip(MinecraftServer s,ServerLevel l,Data d,BlockPos foot,int dx,int dz){
+        // Raised end lintels divert roof runoff sideways, away from the open portals.
+        BlockState material=pavement(l,foot.below());
+        if(obliqueRaster){
+            for(int x=-3;x<=3;x++)for(int z=-3;z<=3;z++)
+                if(!putTunnelShell(s,l,d,columnFoot(d,foot.getX()+x,foot.getZ()+z).above(6),material))return false;
+        }else for(int w=-3;w<=3;w++)if(!putTunnelShell(s,l,d,foot.offset(-dz*w,6,dx*w),material))return false;
+        return true;
     }
     boolean planTunnelShell(MinecraftServer s,ServerLevel l,Data d,BlockPos foot,int dx,int dz){
         if(dx==0&&dz==0)return true;
@@ -573,7 +620,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         int dx=Integer.signum(next.getX()-foot.getX()),dz=Integer.signum(next.getZ()-foot.getZ());
         if(dx==0&&dz==0){dx=Integer.signum(foot.getX()-previous.getX());dz=Integer.signum(foot.getZ()-previous.getZ());}
         BlockPos ceiling=foot.above(5);
-        if(d.route.getCompound(i).getInt("kind")==2&&!walkVolume.contains(ceiling)&&!planned(l,ceiling).isAir()&&editable(l,ceiling)){
+        if((d.route.getCompound(i).getInt("kind")==2||d.route.getCompound(i).getBoolean("liquidCover"))&&!walkVolume.contains(ceiling)&&!planned(l,ceiling).isAir()&&editable(l,ceiling)){
             recipe.put(ceiling,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(ceiling,recipeWorker);recordLight(d,ceiling,"ceiling");return;
         }
 
@@ -707,7 +754,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();deckColumns.clear();pierIndex=0;pierDistance=15;recipeIndex=0;walkVolume.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;planningData=null;}
+    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();deckColumns.clear();pierIndex=0;pierDistance=15;recipeIndex=0;coverSurveyIndex=0;walkVolume.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }

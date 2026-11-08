@@ -65,6 +65,46 @@ public final class AdaptiveRoadGameTests {
         }
         return p;
     }
+    static void ravineWaterfallCrossing(GameTestHelper h,boolean lava){
+        var l=h.getLevel();int offset=lava?17404:17004;BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
+        BlockPos p=new BlockPos(origin.getX(),45,offset*2);
+        for(int x=-5;x<=5;x++)for(int z=-4;z<=44;z++){
+            l.setBlock(p.offset(x,-25,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=-24;y<=13;y++)l.setBlock(p.offset(x,y,z),Blocks.AIR.defaultBlockState(),2);
+        }
+        // A narrow handmade dirt line across a deep ravine, matching the reported case.
+        for(int z=0;z<=40;z++)l.setBlock(p.offset(0,-1,z),Blocks.DIRT.defaultBlockState(),2);
+        for(int x=-4;x<=4;x++)for(int z=19;z<=20;z++)for(int y=-24;y<=12;y++)
+            l.setBlock(p.offset(x,y,z),(lava?Blocks.LAVA:Blocks.WATER).defaultBlockState(),2);
+        var d=data(h,p,p.south(40));var b=new AdaptiveRoadConstructor();final long[] clock={1};b.planClock=()->clock[0];b.begin(d);
+        final int[] ticks={0},finished={-1};
+        h.succeedWhen(()->{
+            ticks[0]++;clock[0]+=50_000_000L;b.tickProject(l.getServer(),d);
+            h.assertTrue(!d.state.equals("PAUSADO")&&!d.state.equals("RECHAZADO"),"Waterfall crossing must not halt: "+d.summary());
+            if(d.state.equals("CONFIRMADO")){
+                int covered=0;for(int i=0;i<d.route.size();i++)if(d.route.getCompound(i).getBoolean("liquidCover"))covered++;
+                h.assertTrue(covered>0&&covered<d.route.size(),"Cover only the waterfall crossing, keeping the rest of the bridge open");
+                d.state="CONSTRUYENDO";
+            }
+            if(d.state.equals("TERMINADO")){
+                if(finished[0]<0){finished[0]=ticks[0];b.shutdown();}
+                if(ticks[0]-finished[0]>=(lava?240:100)){
+                    for(int z=0;z<=40;z++)for(int x=-2;x<=2;x++){
+                        h.assertTrue(l.getBlockState(p.offset(x,-1,z)).isSolid(),"Continuous five-wide ravine deck");
+                        for(int y=0;y<5;y++)h.assertTrue(l.getFluidState(p.offset(x,y,z)).isEmpty()&&l.getBlockState(p.offset(x,y,z)).isAir(),"Keep the crossing dry after external liquid has flowed: "+p.offset(x,y,z));
+                    }
+                    h.assertTrue(l.getBlockState(p.offset(0,5,20)).isSolid(),"Seal the falling liquid above the crossing");
+                    h.assertTrue(!l.getFluidState(p.offset(4,8,20)).isEmpty(),"Keep the waterfall outside the construction volume");
+                    return;
+                }
+            }
+            throw new GameTestAssertException("Waiting for ravine waterfall crossing: "+d.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void fortyBlockRavineBridgeCrossesWaterfallAndStaysDry(GameTestHelper h){ravineWaterfallCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void fortyBlockRavineBridgeCrossesLavafallAndStaysDry(GameTestHelper h){ravineWaterfallCrossing(h,true);}
     @GameTest(template="empty",timeoutTicks=2400)
     public static void straight75BlockMineTunnelReplacesAndRestoresChestAndSpawner(GameTestHelper h){
         var l=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(16204,0,0));
