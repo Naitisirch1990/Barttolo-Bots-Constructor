@@ -66,7 +66,7 @@ public final class AdaptiveRoadGameTests {
         return p;
     }
     @GameTest(template="empty",timeoutTicks=2400)
-    public static void deepWaterPiersAreFullWidthThreeLongAndUndoPlants(GameTestHelper h){
+    public static void deepWaterPiersUseSteppedInvertedStairCapsAndUndoPlants(GameTestHelper h){
         BlockPos p=liquidBasin(h,14604,80,false,false);var l=h.getLevel();
         // A pre-existing deck must also be recognized as suspended.
         for(int x=0;x<=20;x++)for(int z=-2;z<=2;z++)l.setBlock(p.offset(x,-1,z),Blocks.STONE_BRICKS.defaultBlockState(),2);
@@ -74,21 +74,23 @@ public final class AdaptiveRoadGameTests {
         l.setBlock(p.offset(15,-79,0),Blocks.SEAGRASS.defaultBlockState(),2);
         var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
-            h.assertTrue(job.piers==2&&job.pierBlocks>2500,"Plan full-depth piers fifteen blocks apart");
+            h.assertTrue(job.piers==2&&job.pierBlocks>1000,"Plan full-depth centered piers fifteen blocks apart");
             int inverted=0;for(int i=0;i<job.tasks.size();i++){
                 var state=b.read(l,job.tasks.getCompound(i),"after");
                 if(state.getBlock() instanceof StairBlock&&state.getValue(StairBlock.HALF)==Half.TOP)inverted++;
             }
-            h.assertTrue(inverted>=12,"Plan upside-down stair brackets at the top of both piers");
+            h.assertTrue(inverted>=36,"Plan two visible tiers of inverted stairs on both piers");
             var saved=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
             h.assertTrue(saved.piers==2&&saved.pierBlocks==job.pierBlocks,"Persist pier counters");
         },job->{
-            for(int x=14;x<=16;x++)for(int z=-3;z<=3;z++)
-                h.assertTrue(l.getFluidState(p.offset(x,-60,z)).isEmpty()&&l.getBlockState(p.offset(x,-60,z)).isSolid(),"Full deck width including edges, three blocks long, deeper than 32");
-            h.assertTrue(l.getBlockState(p.offset(7,-60,0)).is(Blocks.WATER),"Keep water between piers");
+            for(int x=14;x<=16;x++)for(int z=-1;z<=1;z++)
+                h.assertTrue(l.getFluidState(p.offset(x,-60,z)).isEmpty()&&l.getBlockState(p.offset(x,-60,z)).isSolid(),"Centered 3-by-3 shaft reaches the bed, deeper than 32");
+            h.assertTrue(l.getBlockState(p.offset(15,-60,3)).is(Blocks.WATER)&&l.getBlockState(p.offset(7,-60,0)).is(Blocks.WATER),"Keep water around and between the narrower piers");
             h.assertTrue(!l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG),"Remove trunks instead of using them as a foundation");
-            for(int x=14;x<=16;x++)for(int z:new int[]{-4,4})
-                h.assertTrue(l.getBlockState(p.offset(x,-2,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,-2,z)).getValue(StairBlock.HALF)==Half.TOP,"Build an inverted stair bracket beneath each side of the pier cap");
+            for(int x=14;x<=16;x++)for(int z:new int[]{-2,2})for(int y:new int[]{-2,-3})
+                h.assertTrue(l.getBlockState(p.offset(x,y,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,y,z)).getValue(StairBlock.HALF)==Half.TOP,"Build two tiers of inverted stairs directly under the bridge");
+            for(int x=14;x<=16;x++)for(int z:new int[]{-3,3})
+                h.assertTrue(l.getBlockState(p.offset(x,-2,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,-2,z)).getValue(StairBlock.HALF)==Half.TOP,"Upper stair tier reaches the deck edges");
             job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
             for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
             h.assertTrue(job.changes.isEmpty(),"Undo complete deep piers: "+job.summary());

@@ -432,11 +432,13 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
         BlockPos next=BlockPos.of(d.route.getCompound(Math.min(d.route.size()-1,i+1)).getLong("pos"));
         double dx=next.getX()-before.getX(),dz=next.getZ()-before.getZ(),length=Math.hypot(dx,dz);
         if(length==0)return true;
-        dx/=length;dz/=length;int added=0;
+        dx/=length;dz/=length;int added=0;boolean supported=false;
+        // The shaft is a centered 3-by-3 pier, not a solid wall as wide as the deck.
         for(int x=-5;x<=5;x++)for(int z=-5;z<=5;z++){
-            if(Math.abs(x*dx+z*dz)>1.500001)continue; // three blocks along the bridge
+            double along=x*dx+z*dz,across=-x*dz+z*dx;
+            if(Math.abs(along)>1.500001||Math.abs(across)>1.600001)continue;
             BlockPos floor=deckColumns.get(net.minecraft.world.level.ChunkPos.asLong(center.getX()+x,center.getZ()+z));
-            if(floor==null)continue; // exactly the width of the built deck, including its edges
+            if(floor==null)continue;
             BlockState paving=pavement(l,floor);
             BlockState material=(paving.is(Blocks.SMOOTH_SANDSTONE)||paving.is(Blocks.CUT_SANDSTONE)?Blocks.SMOOTH_SANDSTONE:Blocks.STONE_BRICKS).defaultBlockState();
             ArrayList<BlockPos> column=new ArrayList<>();BlockPos q=floor.below();
@@ -446,31 +448,39 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             }
             // A void has no foundation: omit the entire column, never leave a partial floating pier.
             if(q.getY()<l.getMinBuildHeight()){d.pierSkipped++;continue;}
+            supported=true;
             for(BlockPos p:column){
                 if(!put(p,material)){halt(s,d,"El pilar supera el límite de 250000 posiciones o cruza otra parte del plan.");return false;}
                 added++;
             }
         }
-        // Upside-down stair brackets flare the top of each pier into the bridge deck.
-        // Keep the stone shaft and add a three-block-long pair of wings just beyond its edges.
+        if(!supported)return true;
+        // Two inverted-stair tiers widen the shaft into the bridge soffit, inside the deck edge.
         int sideX=-Integer.signum((int)Math.round(dz)),sideZ=Integer.signum((int)Math.round(dx));
         Direction towardCenter=Math.abs(sideX)>=Math.abs(sideZ)
                 ?(sideX>0?Direction.WEST:Direction.EAST)
                 :(sideZ>0?Direction.NORTH:Direction.SOUTH);
         BlockState paving=pavement(l,center);
         BlockState bracket=stairMaterial(paving).setValue(StairBlock.HALF,Half.TOP);
-        BlockPos bracketY=center.below(2);
-        for(int side:new int[]{-1,1})for(int along=-1;along<=1;along++){
-            BlockPos bracketPos=bracketY.offset(sideX*side*4+Integer.signum((int)Math.round(dx))*along,
-                    0,
-                    sideZ*side*4+Integer.signum((int)Math.round(dz))*along);
-            Direction facing=side>0?towardCenter:towardCenter.getOpposite();
-            BlockState stair=bracket.setValue(StairBlock.FACING,facing);
-            BlockState existing=recipe.get(bracketPos);
-            if(existing!=null&&!matches(existing,stair))continue;
-            if(existing==null&&!safeChange(l,bracketPos,l.getBlockState(bracketPos),stair))continue;
-            if(!put(bracketPos,stair)){halt(s,d,"El remate del pilar supera el límite del plan.");return false;}
-            added++;
+        for(int tier=0;tier<2;tier++){
+            int yBelowDeck=tier==0?3:2;
+            int firstSide=tier==0?2:2,lastSide=tier==0?2:3;
+            for(int side:new int[]{-1,1})for(int distance=firstSide;distance<=lastSide;distance++)for(int along=-1;along<=1;along++){
+                int lateralX=sideX*side*distance,lateralZ=sideZ*side*distance;
+                if(sideX!=0&&sideZ!=0&&distance==2)lateralX=sideX*side;
+                if(sideX!=0&&sideZ!=0&&distance==3)lateralX=sideX*side*2;
+                int x=lateralX+Integer.signum((int)Math.round(dx))*along;
+                int z=lateralZ+Integer.signum((int)Math.round(dz))*along;
+                if(!deckColumns.containsKey(net.minecraft.world.level.ChunkPos.asLong(center.getX()+x,center.getZ()+z)))continue;
+                BlockPos bracketPos=center.below(yBelowDeck).offset(x,0,z);
+                Direction facing=side>0?towardCenter:towardCenter.getOpposite();
+                BlockState stair=bracket.setValue(StairBlock.FACING,facing);
+                BlockState existing=recipe.get(bracketPos);
+                if(existing!=null&&!matches(existing,stair))continue;
+                if(existing==null&&!safeChange(l,bracketPos,l.getBlockState(bracketPos),stair))continue;
+                if(!put(bracketPos,stair)){halt(s,d,"El remate del pilar supera el límite del plan.");return false;}
+                added++;
+            }
         }
         if(added>0){d.piers++;d.pierBlocks+=added;}
         return true;
