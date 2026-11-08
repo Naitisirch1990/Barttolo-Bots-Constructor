@@ -17,6 +17,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.*;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayerFactory;
@@ -450,6 +451,24 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
                 added++;
             }
         }
+        // Upside-down stair brackets flare the top of each pier into the bridge deck.
+        // Keep the stone shaft and add a three-block-long pair of wings just beyond its edges.
+        int sideX=-Integer.signum((int)Math.round(dz)),sideZ=Integer.signum((int)Math.round(dx));
+        Direction towardCenter=Math.abs(sideX)>=Math.abs(sideZ)
+                ?(sideX>0?Direction.WEST:Direction.EAST)
+                :(sideZ>0?Direction.NORTH:Direction.SOUTH);
+        BlockState paving=pavement(l,center);
+        BlockState bracket=stairMaterial(paving).setValue(StairBlock.HALF,Half.TOP);
+        BlockPos bracketY=center.below(2);
+        for(int side:new int[]{-1,1})for(int along=-1;along<=1;along++){
+            BlockPos bracketPos=bracketY.offset(sideX*side*4+Integer.signum((int)Math.round(dx))*along,
+                    0,
+                    sideZ*side*4+Integer.signum((int)Math.round(dz))*along);
+            Direction facing=side>0?towardCenter:towardCenter.getOpposite();
+            if(!safeChange(l,bracketPos,l.getBlockState(bracketPos),bracket))continue;
+            if(!put(bracketPos,bracket.setValue(StairBlock.FACING,facing))){halt(s,d,"El remate del pilar supera el límite del plan.");return false;}
+            added++;
+        }
         if(added>0){d.piers++;d.pierBlocks+=added;}
         return true;
     }
@@ -487,14 +506,17 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             recipe.put(ceiling,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(ceiling,recipeWorker);recordLight(d,ceiling,"ceiling");return;
         }
 
-        // A flush floor light keeps all five walking lanes free when a post will not fit.
-        for(int w:new int[]{0}){
-            BlockPos p=foot.offset(-dz*w,-1,dx*w);BlockState floor=recipe.get(p);
-            if(floor!=null&&!floor.isAir()&&!(floor.getBlock() instanceof StairBlock)&&safeChange(l,p,l.getBlockState(p),Blocks.GLOWSTONE.defaultBlockState())){
-                recipe.put(p,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(p,recipeWorker);recordLight(d,p,"inlay");return;
+        // Two flush glowstone inlays, mirrored across the path, leave the center lane open.
+        ArrayList<BlockPos> pair=new ArrayList<>(2);
+        for(int w:new int[]{-1,1}){
+            BlockPos p=obliqueRaster?columnFoot(d,foot.getX()-dz*w,foot.getZ()+dx*w).below():foot.offset(-dz*w,-1,dx*w);
+            BlockState floor=recipe.get(p);
+            if(floor==null||floor.isAir()||floor.getBlock() instanceof StairBlock||!safeChange(l,p,l.getBlockState(p),Blocks.GLOWSTONE.defaultBlockState())){
+                d.report="Una sección requiere espacio para las dos luces laterales en "+foot;return;
             }
+            pair.add(p);
         }
-        d.report="Una sección de iluminación requiere revisión: no cabe una luz segura en "+foot;
+        for(BlockPos p:pair){recipe.put(p,Blocks.GLOWSTONE.defaultBlockState());workers.putIfAbsent(p,recipeWorker);recordLight(d,p,"inlay");}
     }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;

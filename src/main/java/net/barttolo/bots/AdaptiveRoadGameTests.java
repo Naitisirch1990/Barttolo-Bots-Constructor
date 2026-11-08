@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.*;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraftforge.gametest.*;
 
 @GameTestHolder(Bots.ID)
@@ -74,6 +75,11 @@ public final class AdaptiveRoadGameTests {
         var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
             h.assertTrue(job.piers==2&&job.pierBlocks>2500,"Plan full-depth piers fifteen blocks apart");
+            int inverted=0;for(int i=0;i<job.tasks.size();i++){
+                var state=b.read(l,job.tasks.getCompound(i),"after");
+                if(state.getBlock() instanceof StairBlock&&state.getValue(StairBlock.HALF)==Half.TOP)inverted++;
+            }
+            h.assertTrue(inverted>=12,"Plan upside-down stair brackets at the top of both piers");
             var saved=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
             h.assertTrue(saved.piers==2&&saved.pierBlocks==job.pierBlocks,"Persist pier counters");
         },job->{
@@ -81,6 +87,8 @@ public final class AdaptiveRoadGameTests {
                 h.assertTrue(l.getFluidState(p.offset(x,-60,z)).isEmpty()&&l.getBlockState(p.offset(x,-60,z)).isSolid(),"Full deck width including edges, three blocks long, deeper than 32");
             h.assertTrue(l.getBlockState(p.offset(7,-60,0)).is(Blocks.WATER),"Keep water between piers");
             h.assertTrue(!l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG),"Remove trunks instead of using them as a foundation");
+            for(int x=14;x<=16;x++)for(int z:new int[]{-4,4})
+                h.assertTrue(l.getBlockState(p.offset(x,-2,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,-2,z)).getValue(StairBlock.HALF)==Half.TOP,"Build an inverted stair bracket beneath each side of the pier cap");
             job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
             for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
             h.assertTrue(job.changes.isEmpty(),"Undo complete deep piers: "+job.summary());
@@ -248,11 +256,14 @@ public final class AdaptiveRoadGameTests {
         var d=data(h,p,p.offset(20,0,20));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
             h.assertTrue(job.route.size()==21,"Direct diagonal must not explore a cardinal detour");
-            h.assertTrue(job.lights>=2,"Diagonal includes lighting");
+            h.assertTrue(job.lights>=4&&job.lights%2==0,"Diagonal has paired lighting along both sides");
+            int pairCount=0;
             for(int i=0;i<job.lamps.size();i++){
                 BlockPos lamp=BlockPos.of(job.lamps.getCompound(i).getLong("pos"));
-                h.assertTrue(lamp.getX()-p.getX()==lamp.getZ()-p.getZ()&&lamp.getY()==p.getY()-1,"Floor lights stay on the diagonal centerline");
+                h.assertTrue(lamp.getX()+lamp.getZ()==p.getX()+p.getZ()&&lamp.getY()==p.getY()-1,"Paired floor lights stay level and symmetric across the diagonal");
+                h.assertTrue(Math.abs((lamp.getX()-p.getX())-(lamp.getZ()-p.getZ()))==2,"Lights sit one block to either side of the centerline");pairCount++;
             }
+            h.assertTrue(pairCount==job.lights,"Every recorded floor light is part of a symmetric pair");
         },job->{
             for(int i=0;i<=20;i++)for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)
                 h.assertTrue(l.getBlockState(p.offset(i+x,-1,i+z)).isSolid(),"Diagonal deck has no gaps");
