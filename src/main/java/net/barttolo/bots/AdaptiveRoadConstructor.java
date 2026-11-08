@@ -24,7 +24,7 @@ import net.minecraftforge.event.level.BlockEvent;
 
 /** Bounded, incremental terrain-aware road search. All world reads stay on the server thread. */
 public final class AdaptiveRoadConstructor {
-    static final int MAX_NODES=16000,MAX_SHORT_ROUTE_NODES=512,MAX_BRIDGE_SUPPORT=32,MAX_EDITS=120000,MAX_DISTANCE=2000;
+    static final int MAX_NODES=16000,MAX_SHORT_ROUTE_NODES=512,MAX_BRIDGE_SUPPORT=32,MAX_EDITS=250000,MAX_DISTANCE=2000;
     static final int FLAT_BETWEEN_STEPS=3;
     private static final Set<UUID> ACTIVE_WORKERS=new HashSet<>();
     private static final TicketType<Long> TICKET=TicketType.create("barttolo_adaptive_road",Long::compareTo,40);
@@ -32,7 +32,8 @@ public final class AdaptiveRoadConstructor {
     private final Set<Long> tickets=new HashSet<>();
     private Villager worker;
     private net.minecraft.world.phys.Vec3 workerTarget;
-    private int workerStuck,lightIndex;
+    private int workerStuck,lightIndex,pierIndex;
+    private double pierDistance=15;
     private boolean lastLight,obliqueRaster;
     private final Set<BlockPos> walkVolume=new HashSet<>();
     private Search search;
@@ -42,18 +43,19 @@ public final class AdaptiveRoadConstructor {
     private int recipeIndex,previewCursor;
     private BlockPos recipeWorker;
     private final Map<BlockPos,BlockPos> workers=new HashMap<>();
+    private final Map<Long,BlockPos> deckColumns=new HashMap<>();
     private Data planningData;
     private final LinkedHashMap<BlockPos,BlockState> recipe=new LinkedHashMap<>();
 
     public static final class Data extends SavedData {
         BlockPos a,b;String dimension="minecraft:overworld",state="VACIO",report="";
-        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights;boolean resumeAfterPlan;
+        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights,piers,pierBlocks,pierSkipped;boolean resumeAfterPlan;
         final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag(),archives=new ListTag();
         static Data get(MinecraftServer s){return s.overworld().getDataStorage().computeIfAbsent(Data::load,Data::new,"barttolobots_terrain_roads_v2");}
         static Data load(CompoundTag t){
             Data d=new Data();d.resumeAfterPlan=t.getBoolean("resumeAfterPlan");d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
             if(t.contains("dimension"))d.dimension=t.getString("dimension");d.state=t.getString("state");d.report=t.getString("report");
-            d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.lamps.addAll(t.getList("lamps",10));
+            d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.piers=t.getInt("piers");d.pierBlocks=t.getInt("pierBlocks");d.pierSkipped=t.getInt("pierSkipped");d.lamps.addAll(t.getList("lamps",10));
             d.route.addAll(t.getList("route",10));d.tasks.addAll(t.getList("tasks",10));d.changes.addAll(t.getList("changes",10));
             if(d.state.equals("PLANIFICANDO")||d.state.equals("DISEÑANDO")){d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.state="PAUSADO";}
             if(d.state.equals("CONSTRUYENDO"))d.state="PAUSADO";
@@ -65,10 +67,10 @@ public final class AdaptiveRoadConstructor {
         public CompoundTag save(CompoundTag t){
             if(a!=null)t.putLong("a",a.asLong());if(b!=null)t.putLong("b",b.asLong());
             t.putBoolean("resumeAfterPlan",resumeAfterPlan);t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
-            t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.put("lamps",lamps.copy());
+            t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.putInt("piers",piers);t.putInt("pierBlocks",pierBlocks);t.putInt("pierSkipped",pierSkipped);t.put("lamps",lamps.copy());
             t.put("archives",archives.copy());t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
         }
-        String summary(){return "Archivadas "+archives.size()+" | "+state+" | "+cursor+"/"+tasks.size()+" cambios | camino "+roads+", puente "+bridges+", túnel "+tunnels+" secciones | excavar "+cut+", colocar "+fill+" | "+report;}
+        String summary(){return "Archivadas "+archives.size()+" | "+state+" | "+cursor+"/"+tasks.size()+" cambios | camino "+roads+", puente "+bridges+", túnel "+tunnels+" secciones | pilares "+piers+" ("+pierBlocks+" bloques) | excavar "+cut+", colocar "+fill+" | "+report;}
     }
     record Key(BlockPos pos,int dx,int dz,int grade,int flat){}
     static final class Node {
@@ -173,7 +175,7 @@ public final class AdaptiveRoadConstructor {
         d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
-    void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 60 s.";search=new Search(d.a,d.b);planningData=d;}
+    void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=d.piers=d.pierBlocks=d.pierSkipped=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 60 s.";search=new Search(d.a,d.b);planningData=d;}
     public void tick(MinecraftServer s){
         Data d=Data.get(s);if(s.getAverageTickTime()>55&&s.getTickCount()%4!=0)return;tickProject(s,d);
     }
@@ -202,11 +204,16 @@ public final class AdaptiveRoadConstructor {
     }
     boolean loaded(ServerLevel l,BlockPos p){return l.hasChunkAt(p.offset(-3,0,-3))&&l.hasChunkAt(p.offset(3,0,3))&&l.hasChunkAt(p.offset(-3,0,3))&&l.hasChunkAt(p.offset(3,0,-3));}
     static boolean waterTerrain(BlockState b){return b.is(Blocks.WATER)||b.is(Blocks.SEAGRASS)||b.is(Blocks.TALL_SEAGRASS)||b.is(Blocks.KELP)||b.is(Blocks.KELP_PLANT);}
+    static boolean liquidTerrain(BlockState state){return waterTerrain(state)||state.is(Blocks.LAVA);}
+    static boolean pierBearing(ServerLevel l,BlockPos p){
+        BlockState state=l.getBlockState(p);
+        return l.getBlockEntity(p)==null&&l.getFluidState(p).isEmpty()&&!state.is(BlockTags.LEAVES)&&!state.is(BlockTags.LOGS)&&state.isFaceSturdy(l,p,Direction.UP);
+    }
     Survey survey(ServerLevel l,BlockPos foot){
         if(foot.getY()<l.getMinBuildHeight()+14||foot.getY()+6>=l.getMaxBuildHeight())return null;
         int cut=0,fill=0,depth=0;boolean elevated=false,roof=false;
         for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++){
-            BlockPos floor=foot.offset(x,-1,z);boolean water=waterTerrain(l.getBlockState(floor));
+            BlockPos floor=foot.offset(x,-1,z);boolean water=liquidTerrain(l.getBlockState(floor));
             if(!water&&(!editable(l,floor)||!l.getFluidState(floor).isEmpty()))return null;
             if(water)elevated=true;
             for(int h=1;h<=5;h++){
@@ -218,7 +225,7 @@ public final class AdaptiveRoadConstructor {
             BlockPos ceiling=floor.above(6);if(!l.getFluidState(ceiling).isEmpty()||l.getBlockEntity(ceiling)!=null)return null;
             if(l.getBlockState(ceiling).is(Blocks.STONE)||l.getBlockState(ceiling).is(BlockTags.BASE_STONE_OVERWORLD))roof=true;
             // Classification only: decks do not require foundations.
-            if(water||l.getBlockState(floor).isAir())elevated=true;
+            if(water||l.getBlockState(floor).isAir()||!pierBearing(l,floor.below()))elevated=true;
         }
         return new Survey(elevated?1:roof&&cut>0?2:0,cut,fill,depth);
     }
@@ -308,7 +315,7 @@ public final class AdaptiveRoadConstructor {
         return pavement(l,floor);
     }
     void routeFound(Data d,int sections){
-        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;lastLight=false;walkVolume.clear();recipe.clear();
+        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;pierIndex=0;pierDistance=15;lastLight=false;walkVolume.clear();recipe.clear();deckColumns.clear();
         obliqueRaster=d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
         for(int i=0;i<d.route.size()&&obliqueRaster;i++){BlockPos p=BlockPos.of(d.route.getCompound(i).getLong("pos"));if(!p.equals(columnFoot(d,p.getX(),p.getZ())))obliqueRaster=false;}
         if(obliqueRaster)for(int i=0;i<d.route.size();i++){
@@ -366,6 +373,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
                 BlockPos ceiling=floor.above(6);if(l.getBlockState(ceiling).getBlock() instanceof FallingBlock)put(ceiling,Blocks.STONE_BRICKS.defaultBlockState());
                 BlockState paving=obliqueRaster?rasterPaving(l,d,floor):stairs?stairPavement(l,floor).setValue(StairBlock.FACING,ascent):pavement(l,floor);
                 if(!put(floor,paving)){halt(s,d,"Cruce a distinta altura: requiere otro trazado.");return;}
+                deckColumns.put(net.minecraft.world.level.ChunkPos.asLong(floor.getX(),floor.getZ()),floor);
                 // Seal the deck before excavating over water.
                 for(int h=5;h>=1;h--)if(!l.getBlockState(floor.above(h)).isAir()&&!put(floor.above(h),Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 // The deck spans air/water without compulsory pillars.
@@ -373,8 +381,9 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(kind==1)for(int side:new int[]{-3,3}){
                 BlockPos edge=foot.offset(-dz*side,-1,dx*side);if(obliqueRaster)edge=columnFoot(d,edge.getX(),edge.getZ()).below();BlockPos rail=edge.above();
                 if(walkVolume.contains(rail))continue;
-                if((!editable(l,edge)&&!waterTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
+                if((!editable(l,edge)&&!liquidTerrain(l.getBlockState(edge)))||!editable(l,rail)||!l.getFluidState(rail).isEmpty()){halt(s,d,"No hay espacio seguro para barandillas.");return;}
                 if(!put(edge,pavement(l,edge))||!put(rail,Blocks.COBBLESTONE_WALL.defaultBlockState())){halt(s,d,"Barandilla cruza otra sección.");return;}
+                deckColumns.put(net.minecraft.world.level.ChunkPos.asLong(edge.getX(),edge.getZ()),edge);
             }
             recipeIndex++;d.setDirty();return;
         }
@@ -383,6 +392,23 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(i>=d.route.size()){lastLight=true;i=d.route.size()-1;if(i<4||i%10<4)return;}
             BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));window(l,foot);if(!loaded(l,foot)){if(lastLight)lastLight=false;return;}
             recipeWorker=foot;planLight(l,d,i);lightIndex=i+10;return;
+        }
+        if(pierIndex<d.route.size()){
+            for(int budget=0;budget<8&&pierIndex<d.route.size();budget++){
+                int i=pierIndex;BlockPos foot=BlockPos.of(d.route.getCompound(i).getLong("pos"));
+                window(l,foot);
+                for(int x:new int[]{-5,5})for(int z:new int[]{-5,5})if(!l.hasChunkAt(foot.offset(x,0,z)))return;
+                boolean bridge=d.route.getCompound(i).getInt("kind")==1;
+                if(bridge&&i>0&&d.route.getCompound(i-1).getInt("kind")==1){
+                    BlockPos before=BlockPos.of(d.route.getCompound(i-1).getLong("pos"));
+                    pierDistance+=Math.hypot(foot.getX()-before.getX(),foot.getZ()-before.getZ());
+                }else pierDistance=15;
+                if(bridge&&pierDistance>=15){
+                    recipeWorker=foot;if(!planPier(s,l,d,i))return;pierDistance=0;
+                }
+                pierIndex++;d.report="Pilares: "+d.piers+"; "+d.pierBlocks+" bloques. Revisadas "+pierIndex+"/"+d.route.size()+" secciones.";
+            }
+            d.setDirty();return;
         }
         // Snapshot one small batch per tick, under a moving chunk window.
         int end=Math.min(recipe.size(),d.tasks.size()+64);int index=0;
@@ -398,6 +424,34 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             d.previewTicks=200;d.state=d.resumeAfterPlan?"CONSTRUYENDO":"CONFIRMADO";d.resumeAfterPlan=false;d.report=d.state.equals("CONSTRUYENDO")?"Plan recuperado. Construcción reanudada.":"Plan calculado. Vista automática durante 10 segundos; usá iniciar para construir.";d.setDirty();recipe.clear();release();
             s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);
         }
+    }
+    boolean planPier(MinecraftServer s,ServerLevel l,Data d,int i){
+        BlockPos center=BlockPos.of(d.route.getCompound(i).getLong("pos"));
+        BlockPos before=BlockPos.of(d.route.getCompound(Math.max(0,i-1)).getLong("pos"));
+        BlockPos next=BlockPos.of(d.route.getCompound(Math.min(d.route.size()-1,i+1)).getLong("pos"));
+        double dx=next.getX()-before.getX(),dz=next.getZ()-before.getZ(),length=Math.hypot(dx,dz);
+        if(length==0)return true;
+        dx/=length;dz/=length;int added=0;
+        for(int x=-5;x<=5;x++)for(int z=-5;z<=5;z++){
+            if(Math.abs(x*dx+z*dz)>1.500001)continue; // three blocks along the bridge
+            BlockPos floor=deckColumns.get(net.minecraft.world.level.ChunkPos.asLong(center.getX()+x,center.getZ()+z));
+            if(floor==null)continue; // exactly the width of the built deck, including its edges
+            BlockState paving=pavement(l,floor);
+            BlockState material=(paving.is(Blocks.SMOOTH_SANDSTONE)||paving.is(Blocks.CUT_SANDSTONE)?Blocks.SMOOTH_SANDSTONE:Blocks.STONE_BRICKS).defaultBlockState();
+            ArrayList<BlockPos> column=new ArrayList<>();BlockPos q=floor.below();
+            while(q.getY()>=l.getMinBuildHeight()&&!pierBearing(l,q)){
+                if(!safeChange(l,q,l.getBlockState(q),material)){halt(s,d,"Un bloque protegido o sensible impide el pilar en "+q);return false;}
+                column.add(q);q=q.below();
+            }
+            // A void has no foundation: omit the entire column, never leave a partial floating pier.
+            if(q.getY()<l.getMinBuildHeight()){d.pierSkipped++;continue;}
+            for(BlockPos p:column){
+                if(!put(p,material)){halt(s,d,"El pilar supera el límite de 250000 posiciones o cruza otra parte del plan.");return false;}
+                added++;
+            }
+        }
+        if(added>0){d.piers++;d.pierBlocks+=added;}
+        return true;
     }
     BlockState planned(ServerLevel l,BlockPos p){return recipe.getOrDefault(p,l.getBlockState(p));}
     void recordLight(Data d,BlockPos p,String type){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putString("type",type);d.lamps.add(t);d.lights++;}
@@ -444,7 +498,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
-        if(waterTerrain(before)&&!after.isAir())return true;
+        if(!after.isAir()&&(liquidTerrain(before)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.WATER)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.LAVA)))return editable(l,p);
         return editable(l,p)&&l.getFluidState(p).isEmpty();
     }
     BlockState read(ServerLevel l,CompoundTag t,String key){return NbtUtils.readBlockState(l.holderLookup(Registries.BLOCK),t.getCompound(key));}
@@ -556,7 +610,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();recipeIndex=0;walkVolume.clear();planningData=null;}
+    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();deckColumns.clear();pierIndex=0;pierDistance=15;recipeIndex=0;walkVolume.clear();planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }

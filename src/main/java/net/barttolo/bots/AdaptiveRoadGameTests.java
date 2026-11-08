@@ -52,6 +52,62 @@ public final class AdaptiveRoadGameTests {
             throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
         });
     }
+    static BlockPos liquidBasin(GameTestHelper h,int offset,int depth,boolean lava,boolean diagonal){
+        BlockPos p=ground(h,offset);var l=h.getLevel();int maxZ=diagonal?24:5;
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=maxZ;z++){
+            l.setBlock(p.offset(x,-depth,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=-depth+1;y<=-1;y++){
+                boolean wall=x==-4||x==24||z==-5||z==maxZ;
+                l.setBlock(p.offset(x,y,z),(wall?Blocks.STONE:lava?Blocks.LAVA:Blocks.WATER).defaultBlockState(),2);
+            }
+            for(int y=0;y<=7;y++)l.setBlock(p.offset(x,y,z),Blocks.AIR.defaultBlockState(),2);
+        }
+        return p;
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void deepWaterPiersAreFullWidthThreeLongAndUndoPlants(GameTestHelper h){
+        BlockPos p=liquidBasin(h,14604,80,false,false);var l=h.getLevel();
+        // A pre-existing deck must also be recognized as suspended.
+        for(int x=0;x<=20;x++)for(int z=-2;z<=2;z++)l.setBlock(p.offset(x,-1,z),Blocks.STONE_BRICKS.defaultBlockState(),2);
+        l.setBlock(p.offset(15,-20,0),Blocks.OAK_LOG.defaultBlockState(),2);
+        l.setBlock(p.offset(15,-79,0),Blocks.SEAGRASS.defaultBlockState(),2);
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.piers==2&&job.pierBlocks>3000,"Plan full-depth piers fifteen blocks apart");
+            var saved=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
+            h.assertTrue(saved.piers==2&&saved.pierBlocks==job.pierBlocks,"Persist pier counters");
+        },job->{
+            for(int x=14;x<=16;x++)for(int z=-3;z<=3;z++)
+                h.assertTrue(l.getFluidState(p.offset(x,-60,z)).isEmpty()&&l.getBlockState(p.offset(x,-60,z)).isSolid(),"Full deck width including edges, three blocks long, deeper than 32");
+            h.assertTrue(l.getBlockState(p.offset(7,-60,0)).is(Blocks.WATER),"Keep water between piers");
+            h.assertTrue(!l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG),"Remove trunks instead of using them as a foundation");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty(),"Undo complete deep piers: "+job.summary());
+            h.assertTrue(l.getBlockState(p.offset(15,-60,0)).is(Blocks.WATER)&&l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG)&&l.getBlockState(p.offset(15,-79,0)).is(Blocks.SEAGRASS),"Restore water and removed vegetation");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void lavaBridgePiersReachSolidBed(GameTestHelper h){
+        BlockPos p=liquidBasin(h,15004,12,true,false);var l=h.getLevel();
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.piers==2,"Detect lava and plan piers"),job->{
+            h.assertTrue(l.getFluidState(p.offset(15,-10,0)).isEmpty()&&l.getBlockState(p.offset(15,-10,0)).isSolid(),"Pier replaces lava to the bed");
+            h.assertTrue(l.getBlockState(p.offset(7,-10,0)).is(Blocks.LAVA),"Leave lava between piers");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<1000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(15,-10,0)).is(Blocks.LAVA),"Undo lava pillars: "+job.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void diagonalPiersFollowTheDeckAndReachBed(GameTestHelper h){
+        BlockPos p=liquidBasin(h,15404,9,false,true);var l=h.getLevel();
+        var d=data(h,p,p.offset(20,0,20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.piers==2,"Space diagonal piers by horizontal distance, not node count"),job->{
+            h.assertTrue(l.getBlockState(p.offset(11,-8,11)).isSolid()&&l.getBlockState(p.offset(11,-9,11)).is(Blocks.STONE),"Rotated pier reaches its foundation");
+            h.assertTrue(l.getBlockState(p.offset(5,-8,5)).is(Blocks.WATER),"Keep a clear span between diagonal piers");
+        });
+    }
     static void steepDescendingCrossing(GameTestHelper h,boolean oblique){
         var l=h.getLevel();int offset=oblique?14204:13804;
         BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
@@ -128,7 +184,7 @@ public final class AdaptiveRoadGameTests {
         var commands=dispatcher.getRoot().getChild("bot").getChild("constructor");
         h.assertTrue(commands.getChild("planificar")==null&&commands.getChild("vista")==null,"Remove redundant commands");
         h.assertTrue(b.markBAndPlan(d,p.east(8))==null&&d.state.equals("PLANIFICANDO"),"Marking B immediately starts planning");
-        drive(h,b,d,job->h.assertTrue(job.previewTicks>0,"Automatically preview before the single start command"),
+        drive(h,b,d,job->h.assertTrue(job.previewTicks>0&&job.piers==0,"Automatically preview a ground road without piers"),
             job->h.assertTrue(job.state.equals("TERMINADO"),"Complete the simplified flow"));
     }
     @GameTest(template="empty",timeoutTicks=1600)
@@ -280,7 +336,7 @@ public final class AdaptiveRoadGameTests {
         l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
         for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
         h.assertTrue(b.survey(l,p.east(18))!=null,"A deck may span leaves or air without a foundation");
-        drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125,"Count tunnel sections and excavation"),job->{
+        drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125&&job.piers==0,"Count tunnel sections without adding piers"),job->{
             for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
             h.assertTrue(l.getBlockState(p.offset(4,5,0)).is(Blocks.STONE),"Keep the tunnel roof");
         });
