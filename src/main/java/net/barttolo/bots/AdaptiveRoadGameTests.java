@@ -24,6 +24,43 @@ public final class AdaptiveRoadGameTests {
         var d=new AdaptiveRoadConstructor.Data();d.a=a;d.b=b;d.dimension=h.getLevel().dimension().location().toString();return d;
     }
     static void route(AdaptiveRoadConstructor.Data d,BlockPos p,int kind){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",kind);d.route.add(t);}
+    static CompoundTag journal(BlockPos p,Block before,Block after){
+        CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.put("before",net.minecraft.nbt.NbtUtils.writeBlockState(before.defaultBlockState()));t.put("after",net.minecraft.nbt.NbtUtils.writeBlockState(after.defaultBlockState()));return t;
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void savedPausedUndoRecoversMissingBlocksAndFlowingWater(GameTestHelper h){
+        BlockPos p=ground(h,17804),q=p.east(2);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,q);
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE_BRICKS));d.changes.add(journal(q,Blocks.STONE,Blocks.ANDESITE));
+        d.state="DESHACER_PAUSADO";d.undo=1;
+        l.setBlock(p,Blocks.AIR.defaultBlockState(),2);l.setBlock(q,Blocks.WATER.defaultBlockState(),2);
+        d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));b.startUndo(d,false);loadUndoChunks(h,d);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT)&&l.getBlockState(q).is(Blocks.STONE),"Restore missing masonry and water drift from an old saved paused job");b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void resumeAndCancelPreserveOnlyPendingUndoHistory(GameTestHelper h){
+        BlockPos p=ground(h,18204),q=p.east(2);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,q);
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.changes.add(journal(q,Blocks.DIRT,Blocks.STONE));
+        d.state="DESHACER_PAUSADO";d.undo=0;l.setBlock(p,Blocks.STONE.defaultBlockState(),2);l.setBlock(q,Blocks.BEDROCK.defaultBlockState(),2);
+        b.startUndo(d,false);h.assertTrue(d.undo==0,"Repeating undo resumes the pending index without restarting completed work");
+        b.cancel(d);h.assertTrue(d.state.equals("CONFIGURANDO")&&d.changes.isEmpty()&&d.archives.size()==1&&d.archives.getCompound(0).getList("changes",10).size()==1,"Cancel archives only the remaining restoration history");
+        h.assertTrue(l.getBlockState(p).is(Blocks.STONE)&&AdaptiveRoadConstructor.archiveFinished(d),"Cancel leaves blocks in place and frees creation of another job");
+        d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));h.assertTrue(AdaptiveRoadConstructor.restoreArchive(d),"Recover cancelled history after restart");b.startUndo(d,false);loadUndoChunks(h,d);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT)&&l.getBlockState(q).is(Blocks.BEDROCK),"Restoring cancelled history must never revisit already-undone entries");b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void forceUndoRecoversManualReplacementButRespectsBedrock(GameTestHelper h){
+        BlockPos p=ground(h,18604);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(2));
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.state="DESHACER_PAUSADO";d.undo=0;l.setBlock(p,Blocks.GOLD_BLOCK.defaultBlockState(),2);
+        b.startUndo(d,false);loadUndoChunks(h,d);b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.state.equals("DESHACER_PAUSADO")&&d.report.contains("minecraft:gold_block"),"Name a real solid conflict before forcing it");
+        b.startUndo(d,true);d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));h.assertTrue(d.forceUndo,"Persist forced restoration across restart");b.startUndo(d,false);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT),"Forced restoration replaces the manually changed block");
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.state="PAUSADO";l.setBlock(p,Blocks.BEDROCK.defaultBlockState(),2);b.startUndo(d,true);b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.state.equals("DESHACER_PAUSADO")&&l.getBlockState(p).is(Blocks.BEDROCK),"Force never bypasses unbreakable blocks or protection checks");b.cancel(d);h.assertTrue(d.state.equals("CONFIGURANDO"),"Cancel remains available even after an unresolvable protection");b.shutdown();h.succeed();
+    }
     static void loadUndoChunks(GameTestHelper h,AdaptiveRoadConstructor.Data d){
         // These tests undo synchronously in one server tick; load their small fixture
         // first. The production executor naturally waits for chunks across ticks.
@@ -64,6 +101,28 @@ public final class AdaptiveRoadGameTests {
             for(int y=0;y<=7;y++)l.setBlock(p.offset(x,y,z),Blocks.AIR.defaultBlockState(),2);
         }
         return p;
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void tunnelUnderLakeStaysDryWithoutDrainingWaterAboveRoof(GameTestHelper h){
+        BlockPos p=ground(h,19004);var l=h.getLevel();
+        for(int x=1;x<=15;x++)for(int z=-5;z<=5;z++){
+            for(int y=0;y<=4;y++)l.setBlock(p.offset(x,y,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=5;y<=9;y++)l.setBlock(p.offset(x,y,z),(x==1||x==15||Math.abs(z)==5?Blocks.STONE:Blocks.WATER).defaultBlockState(),2);
+        }
+        var d=data(h,p,p.east(16));var b=new AdaptiveRoadConstructor();final long[] clock={1};b.planClock=()->clock[0];b.begin(d);final int[] tick={0},finished={-1};
+        h.succeedWhen(()->{
+            clock[0]+=50_000_000L;tick[0]++;b.tickProject(l.getServer(),d);
+            h.assertTrue(!d.state.equals("PAUSADO")&&!d.state.equals("RECHAZADO"),"Under-lake tunnel must build: "+d.summary());
+            if(d.state.equals("CONFIRMADO"))d.state="CONSTRUYENDO";
+            if(d.state.equals("TERMINADO")){
+                if(finished[0]<0){finished[0]=tick[0];b.shutdown();}
+                if(tick[0]-finished[0]>=100){
+                    for(int x=0;x<=16;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir()&&l.getFluidState(p.offset(x,y,z)).isEmpty(),"Keep the full under-lake passage dry after fluid ticks");
+                    h.assertTrue(l.getBlockState(p.offset(8,5,0)).isSolid()&&l.getBlockState(p.offset(8,7,0)).is(Blocks.WATER),"Seal the roof while preserving the lake above it");return;
+                }
+            }
+            throw new GameTestAssertException("Waiting for under-lake tunnel: "+d.summary());
+        });
     }
     static void ravineWaterfallCrossing(GameTestHelper h,boolean lava){
         var l=h.getLevel();int offset=lava?17404:17004;BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
@@ -272,6 +331,7 @@ public final class AdaptiveRoadGameTests {
         var dispatcher=new com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack>();b.register(dispatcher);
         var commands=dispatcher.getRoot().getChild("bot").getChild("constructor");
         h.assertTrue(commands.getChild("planificar")==null&&commands.getChild("vista")==null,"Remove redundant commands");
+        h.assertTrue(commands.getChild("cancelar")!=null&&commands.getChild("deshacer").getChild("forzar")!=null,"Expose cancellation and forced restoration commands");
         h.assertTrue(b.markBAndPlan(d,p.east(8))==null&&d.state.equals("PLANIFICANDO"),"Marking B immediately starts planning");
         drive(h,b,d,job->h.assertTrue(job.previewTicks>0&&job.piers==0,"Automatically preview a ground road without piers"),
             job->h.assertTrue(job.state.equals("TERMINADO"),"Complete the simplified flow"));

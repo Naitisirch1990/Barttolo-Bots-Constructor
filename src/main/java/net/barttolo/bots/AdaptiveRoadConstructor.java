@@ -54,11 +54,11 @@ public final class AdaptiveRoadConstructor {
 
     public static final class Data extends SavedData {
         BlockPos a,b;String dimension="minecraft:overworld",state="VACIO",report="";
-        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights,piers,pierBlocks,pierSkipped;boolean resumeAfterPlan;
+        int cursor,undo,roads,bridges,tunnels,cut,fill,previewTicks,lights,piers,pierBlocks,pierSkipped;boolean resumeAfterPlan,forceUndo;
         final ListTag route=new ListTag(),tasks=new ListTag(),changes=new ListTag(),lamps=new ListTag(),archives=new ListTag();
         static Data get(MinecraftServer s){return s.overworld().getDataStorage().computeIfAbsent(Data::load,Data::new,"barttolobots_terrain_roads_v2");}
         static Data load(CompoundTag t){
-            Data d=new Data();d.resumeAfterPlan=t.getBoolean("resumeAfterPlan");d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
+            Data d=new Data();d.forceUndo=t.getBoolean("forceUndo");d.resumeAfterPlan=t.getBoolean("resumeAfterPlan");d.archives.addAll(t.getList("archives",10));if(t.contains("a"))d.a=BlockPos.of(t.getLong("a"));if(t.contains("b"))d.b=BlockPos.of(t.getLong("b"));
             if(t.contains("dimension"))d.dimension=t.getString("dimension");d.state=t.getString("state");d.report=t.getString("report");
             d.cursor=t.getInt("cursor");d.undo=t.getInt("undo");d.roads=t.getInt("roads");d.bridges=t.getInt("bridges");d.tunnels=t.getInt("tunnels");d.cut=t.getInt("cut");d.fill=t.getInt("fill");d.lights=t.getInt("lights");d.piers=t.getInt("piers");d.pierBlocks=t.getInt("pierBlocks");d.pierSkipped=t.getInt("pierSkipped");d.lamps.addAll(t.getList("lamps",10));
             d.route.addAll(t.getList("route",10));d.tasks.addAll(t.getList("tasks",10));d.changes.addAll(t.getList("changes",10));
@@ -71,7 +71,7 @@ public final class AdaptiveRoadConstructor {
         }
         public CompoundTag save(CompoundTag t){
             if(a!=null)t.putLong("a",a.asLong());if(b!=null)t.putLong("b",b.asLong());
-            t.putBoolean("resumeAfterPlan",resumeAfterPlan);t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
+            t.putBoolean("forceUndo",forceUndo);t.putBoolean("resumeAfterPlan",resumeAfterPlan);t.putInt("planVersion",3);t.putString("dimension",dimension);t.putString("state",state);t.putString("report",report);t.putInt("cursor",cursor);t.putInt("undo",undo);
             t.putInt("roads",roads);t.putInt("bridges",bridges);t.putInt("tunnels",tunnels);t.putInt("cut",cut);t.putInt("fill",fill);t.putInt("lights",lights);t.putInt("piers",piers);t.putInt("pierBlocks",pierBlocks);t.putInt("pierSkipped",pierSkipped);t.put("lamps",lamps.copy());
             t.put("archives",archives.copy());t.put("route",route.copy());t.put("tasks",tasks.copy());t.put("changes",changes.copy());return t;
         }
@@ -102,7 +102,9 @@ public final class AdaptiveRoadConstructor {
     private ServerLevel level(MinecraftServer s,Data d){return s.getLevel(ResourceKey.create(Registries.DIMENSION,new ResourceLocation(d.dimension)));}
     public void register(CommandDispatcher<CommandSourceStack> dispatcher){
         var root=Commands.literal("constructor").requires(s->s.hasPermission(2));
-        for(String name:List.of("crear","puntoA","puntoB","iniciar","pausar","continuar","detener","estado","ir","listar","deshacer"))root.then(Commands.literal(name).executes(c->command(c.getSource(),name)));
+        for(String name:List.of("crear","puntoA","puntoB","iniciar","pausar","continuar","detener","cancelar","estado","ir","listar"))root.then(Commands.literal(name).executes(c->command(c.getSource(),name)));
+        root.then(Commands.literal("deshacer").executes(c->command(c.getSource(),"deshacer"))
+            .then(Commands.literal("forzar").executes(c->command(c.getSource(),"deshacer_forzar"))));
         var legacy=Commands.literal("legado");
         for(String name:List.of("estado","deshacer","pausar"))legacy.then(Commands.literal(name).executes(c->{
             if(!name.equals("estado")&&Set.of("PLANIFICANDO","DISEÑANDO","CONSTRUYENDO","DESHACIENDO").contains(Data.get(c.getSource().getServer()).state))return fail(c.getSource(),"Pausá primero la obra adaptativa.");
@@ -112,11 +114,12 @@ public final class AdaptiveRoadConstructor {
     }
     int command(CommandSourceStack s,String name)throws CommandSyntaxException{
         Data d=Data.get(s.getServer());
-        if(!Set.of("estado","listar","ir").contains(name)&&RoadConstructor.Data.get(s.getServer()).state.equals("DESHACIENDO"))return fail(s,"Esperá a que termine el deshacer de la obra antigua.");
+        if(!Set.of("estado","listar","ir","cancelar").contains(name)&&RoadConstructor.Data.get(s.getServer()).state.equals("DESHACIENDO"))return fail(s,"Esperá a que termine el deshacer de la obra antigua.");
         switch(name){
             case "crear":
-                if(!archiveFinished(d))return fail(s,"Terminá o deshacé la obra activa antes de crear otra.");
+                if(!archiveFinished(d))return fail(s,"Terminá o deshacé la obra activa, o usá /bot constructor cancelar para archivarla y crear otra.");
                 reset();d.a=null;d.b=null;d.cursor=0;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.dimension=s.getLevel().dimension().location().toString();d.state="CONFIGURANDO";d.report="Marcá A y B: alturas y direcciones libres.";break;
+            case "cancelar":cancel(d);break;
             case "puntoA":case "puntoB":
                 if(!Set.of("CONFIGURANDO","RECHAZADO").contains(d.state)||!d.changes.isEmpty())return fail(s,"Primero crear una obra nueva.");
                 if(!d.dimension.equals(s.getLevel().dimension().location().toString()))return fail(s,"A y B deben estar en la misma dimensión.");
@@ -134,13 +137,13 @@ public final class AdaptiveRoadConstructor {
                 else if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO","CONFIRMADO","LISTO").contains(d.state))d.state="PAUSADO";
                 reset();break;
             case "continuar":
-                if(d.state.equals("DESHACER_PAUSADO")){d.state="DESHACIENDO";break;}
+                if(d.state.equals("DESHACER_PAUSADO")){startUndo(d,false);break;}
                 if(!Set.of("PAUSADO","RECHAZADO").contains(d.state)||d.a==null||d.b==null)return fail(s,"No hay obra interrumpida con A/B marcados.");
                 resume(d);break;
-            case "deshacer":
+            case "deshacer":case "deshacer_forzar":
                 if(Set.of("CONSTRUYENDO","PLANIFICANDO","DISEÑANDO").contains(d.state))return fail(s,"Pausá antes de deshacer.");
                 if(d.changes.isEmpty()&&!restoreArchive(d))return fail(s,"No hay obras para deshacer. Para 0.1.0 usá /bot constructor legado deshacer.");
-                d.undo=d.changes.size()-1;d.state="DESHACIENDO";reset();break;
+                startUndo(d,name.equals("deshacer_forzar"));break;
             case "ir":
                 ServerLevel l=level(s.getServer(),d);if(l==null||d.route.isEmpty())return fail(s,"No hay ruta calculada.");
                 BlockPos target=d.cursor<d.tasks.size()?BlockPos.of(d.tasks.getCompound(d.cursor).getLong("worker")):BlockPos.of(d.route.getCompound(d.route.size()-1).getLong("pos"));
@@ -167,6 +170,23 @@ public final class AdaptiveRoadConstructor {
         if(d.tasks.isEmpty()||d.state.equals("RECHAZADO")){begin(d);d.resumeAfterPlan=true;}
         else{d.state="CONSTRUYENDO";d.report="Obra reanudada.";d.setDirty();}
     }
+    void startUndo(Data d,boolean force){
+        boolean resuming=d.state.equals("DESHACIENDO")||d.state.equals("DESHACER_PAUSADO");
+        if(!resuming){d.undo=d.changes.size()-1;d.forceUndo=false;}
+        d.forceUndo|=force;d.state="DESHACIENDO";d.report="Restauración reanudada desde el cambio "+(d.undo+1)+(d.forceUndo?"; reemplazo forzado autorizado.":".");d.setDirty();reset();
+    }
+    void cancel(Data d){
+        boolean undoing=d.state.equals("DESHACIENDO")||d.state.equals("DESHACER_PAUSADO");
+        int remaining=undoing?Math.min(d.changes.size(),Math.max(0,d.undo+1)):d.changes.size();
+        if(remaining>0){
+            CompoundTag archive=new CompoundTag();archive.putString("dimension",d.dimension);archive.putBoolean("cancelled",true);
+            ListTag history=new ListTag();for(int i=0;i<remaining;i++)history.add(d.changes.getCompound(i).copy());
+            archive.put("changes",history);d.archives.add(archive);
+        }
+        reset();d.changes.clear();d.tasks.clear();d.route.clear();d.lamps.clear();d.a=d.b=null;d.cursor=0;d.undo=-1;d.previewTicks=0;
+        d.resumeAfterPlan=d.forceUndo=false;d.roads=d.bridges=d.tunnels=d.cut=d.fill=d.lights=d.piers=d.pierBlocks=d.pierSkipped=0;
+        d.state="CONFIGURANDO";d.report="Obra cancelada. Los bloques actuales se conservan. "+(remaining>0?"Historial pendiente archivado para deshacer. ":"Sin cambios pendientes. ")+"Podés marcar nuevos A/B.";d.setDirty();
+    }
     static boolean archiveFinished(Data d){
         if(d.changes.isEmpty())return true;
         if(!d.state.equals("TERMINADO"))return false;
@@ -177,7 +197,7 @@ public final class AdaptiveRoadConstructor {
         if(d.archives.isEmpty())return false;
         CompoundTag archive=d.archives.getCompound(d.archives.size()-1);
         d.dimension=archive.getString("dimension");d.changes.addAll(archive.getList("changes",10));
-        d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.setDirty();return true;
+        d.archives.remove(d.archives.size()-1);d.route.clear();d.tasks.clear();d.state="PAUSADO";d.undo=d.changes.size()-1;d.forceUndo=false;d.setDirty();return true;
     }
     static int fail(CommandSourceStack s,String text){s.sendFailure(Component.literal(text));return 0;}
     void begin(Data d){reset();d.resumeAfterPlan=false;d.route.clear();d.tasks.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.roads=d.bridges=d.tunnels=d.cut=d.fill=d.piers=d.pierBlocks=d.pierSkipped=0;d.state="PLANIFICANDO";planStartedNano=planClock.getAsLong();nextPlanNotice=planStartedNano+5_000_000_000L;d.report="A "+d.a+"; B "+d.b+"; distancia "+heuristic(d.a,d.b)+"; desnivel "+(d.b.getY()-d.a.getY())+". Límite de planificación: 60 s.";search=new Search(d.a,d.b);planningData=d;}
@@ -678,16 +698,25 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     boolean allowed(ServerLevel l,BlockPos p){return !MinecraftForge.EVENT_BUS.post(new BlockEvent.BreakEvent(l,p,l.getBlockState(p),FakePlayerFactory.getMinecraft(l)));}
     void undoTick(MinecraftServer s,ServerLevel l,Data d){
         for(int i=0;i<8;i++){
-            if(d.undo<0){d.changes.clear();d.tasks.clear();d.route.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.state="CONFIGURANDO";d.report="Terreno restaurado.";d.setDirty();reset();return;}
+            if(d.undo<0){d.forceUndo=false;d.changes.clear();d.tasks.clear();d.route.clear();d.lamps.clear();d.lights=0;d.cursor=0;d.state="CONFIGURANDO";d.report="Terreno restaurado.";d.setDirty();reset();return;}
             CompoundTag t=d.changes.getCompound(d.undo);BlockPos p=BlockPos.of(t.getLong("pos"));window(l,p);if(!loaded(l,p))return;
             BlockState old=read(l,t,"before"),after=read(l,t,"after"),current=l.getBlockState(p);
             if(current.equals(old)){restoreBlockEntity(l,p,t);d.undo--;d.setDirty();continue;}
-            if(!matches(current,after)||l.getBlockEntity(p)!=null||!allowed(l,p)){d.state="DESHACER_PAUSADO";d.report="Conflicto o protección al restaurar "+p;d.setDirty();reset();return;}
+            if(!editable(l,p)||!allowed(l,p)){pauseUndo(d,"Protección o bloque no modificable al restaurar "+p+": "+blockName(current)+". Podés usar cancelar para liberar la obra.");return;}
+            if(!d.forceUndo&&(!matches(current,after)&&!naturalUndoDrift(current)||l.getBlockEntity(p)!=null)){
+                pauseUndo(d,"Conflicto al restaurar "+p+"; actual "+blockName(current)+", esperado "+blockName(after)+". Usá /bot constructor deshacer forzar o /bot constructor cancelar.");return;
+            }
             if(!old.isAir()&&!clearObstructions(l,p)){d.state="DESHACER_PAUSADO";d.report="Jugador en el volumen a restaurar: "+p+"; apartate y usá continuar.";d.setDirty();reset();return;}
+            if(l.getBlockEntity(p)!=null&&current.getBlock()!=old.getBlock())l.removeBlockEntity(p);
             if(!l.setBlock(p,old,3)){d.state="DESHACER_PAUSADO";d.report="Falló restauración "+p;d.setDirty();reset();return;}
             restoreBlockEntity(l,p,t);d.undo--;d.setDirty();
         }
     }
+    static String blockName(BlockState state){return net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();}
+    static boolean naturalUndoDrift(BlockState current){
+        return current.isAir()||!current.getFluidState().isEmpty()||current.getBlock() instanceof FallingBlock||current.is(BlockTags.LEAVES)||current.is(BlockTags.FLOWERS)||current.is(Blocks.GRASS)||current.is(Blocks.TALL_GRASS);
+    }
+    void pauseUndo(Data d,String reason){d.state="DESHACER_PAUSADO";d.report=reason;d.setDirty();reset();}
     void restoreBlockEntity(ServerLevel l,BlockPos p,CompoundTag task){
         if(task.contains("beforeBlockEntity")&&l.getBlockEntity(p)!=null){l.getBlockEntity(p).load(task.getCompound("beforeBlockEntity"));l.getBlockEntity(p).setChanged();l.sendBlockUpdated(p,l.getBlockState(p),l.getBlockState(p),3);}
     }
