@@ -46,6 +46,7 @@ public final class AdaptiveRoadConstructor {
     private final Map<BlockPos,BlockPos> workers=new HashMap<>();
     private final Map<Long,BlockPos> deckColumns=new HashMap<>();
     private final LinkedHashSet<BlockPos> tunnelExcavations=new LinkedHashSet<>();
+    private final Set<BlockPos> sealedTunnelInterior=new HashSet<>();
     private Iterator<BlockPos> tunnelExcavationIterator;
     private Data planningData;
     private final LinkedHashMap<BlockPos,BlockState> recipe=new LinkedHashMap<>();
@@ -317,7 +318,7 @@ public final class AdaptiveRoadConstructor {
         return pavement(l,floor);
     }
     void routeFound(Data d,int sections){
-        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;pierIndex=0;pierDistance=15;lastLight=false;walkVolume.clear();recipe.clear();deckColumns.clear();tunnelExcavations.clear();tunnelExcavationIterator=null;
+        d.state="DISEÑANDO";recipeIndex=0;lightIndex=0;pierIndex=0;pierDistance=15;lastLight=false;walkVolume.clear();recipe.clear();deckColumns.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;
         obliqueRaster=d.a.getX()!=d.b.getX()&&d.a.getZ()!=d.b.getZ();
         for(int i=0;i<d.route.size()&&obliqueRaster;i++){BlockPos p=BlockPos.of(d.route.getCompound(i).getLong("pos"));if(!p.equals(columnFoot(d,p.getX(),p.getZ())))obliqueRaster=false;}
         if(obliqueRaster)for(int i=0;i<d.route.size();i++){
@@ -379,7 +380,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
                 // Seal the deck before excavating over water.
                 for(int h=5;h>=1;h--){
                     BlockPos clear=floor.above(h);
-                    if(kind==2)tunnelExcavations.add(clear);
+                    if(kind==2){tunnelExcavations.add(clear);sealedTunnelInterior.add(clear);}
                     else if(!l.getBlockState(clear).isAir()&&!put(clear,Blocks.AIR.defaultBlockState())){halt(s,d,"Solapamiento de trazado; probá puntos intermedios.");return;}
                 }
                 // The deck spans air/water without compulsory pillars.
@@ -436,11 +437,11 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             BlockPos p=e.getKey();window(l,p);if(!loaded(l,p))return;
             BlockState old=l.getBlockState(p),after=e.getValue();
             if(!safeChange(l,p,old,after)){halt(s,d,"Bloque sensible o líquido en el diseño: "+p);return;}
-            CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.put("before",NbtUtils.writeBlockState(old));t.put("after",NbtUtils.writeBlockState(after));
+            CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.put("before",NbtUtils.writeBlockState(old));t.put("after",NbtUtils.writeBlockState(after));t.putBoolean("sealedTunnelInterior",sealedTunnelInterior.contains(p));
             t.putLong("worker",workers.getOrDefault(p,p.above()).asLong());d.tasks.add(t);if(!old.equals(after)){if(after.isAir())d.cut++;else d.fill++;}
         }
         if(d.tasks.size()==recipe.size()){
-            d.previewTicks=200;d.state=d.resumeAfterPlan?"CONSTRUYENDO":"CONFIRMADO";d.resumeAfterPlan=false;d.report=d.state.equals("CONSTRUYENDO")?"Plan recuperado. Construcción reanudada.":"Plan calculado. Vista automática durante 10 segundos; usá iniciar para construir.";d.setDirty();recipe.clear();release();
+            d.previewTicks=200;d.state=d.resumeAfterPlan?"CONSTRUYENDO":"CONFIRMADO";d.resumeAfterPlan=false;d.report=d.state.equals("CONSTRUYENDO")?"Plan recuperado. Construcción reanudada.":"Plan calculado. Vista automática durante 10 segundos; usá iniciar para construir.";d.setDirty();recipe.clear();sealedTunnelInterior.clear();release();
             s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+d.summary()),false);
         }
     }
@@ -599,7 +600,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
             if(!safeChange(l,p,current,after)){halt(s,d,"El terreno cambió o está protegido en "+p+". No se sobrescribió.");return;}
             if(matches(current,after)){d.cursor++;d.setDirty();continue;}
             if(!allowed(l,p)){halt(s,d,"Protección canceló el cambio en "+p);return;}
-            if(after.isAir())for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
+            if(after.isAir()&&!task.getBoolean("sealedTunnelInterior"))for(Direction dir:Direction.values())if(!l.getFluidState(p.relative(dir)).isEmpty()){halt(s,d,"Se detectó líquido junto a la excavación en "+p);return;}
             if(!after.isAir()&&!clearObstructions(l,p)){halt(s,d,"Un jugador ocupa "+p+"; apartate y usá continuar.");return;}
             if(!pending){CompoundTag change=task.copy();change.put("before",NbtUtils.writeBlockState(current));change.putInt("task",d.cursor);d.changes.add(change);d.setDirty();}
             if(!l.setBlock(p,after,3)){halt(s,d,"No se pudo modificar "+p);return;}
@@ -694,7 +695,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     void halt(MinecraftServer s,Data d,String text){d.state=d.changes.isEmpty()?"RECHAZADO":"PAUSADO";d.report=text;d.setDirty();reset();s.getPlayerList().broadcastSystemMessage(Component.literal("Constructor: "+text),false);}
     void removeWorker(){if(worker!=null){ACTIVE_WORKERS.remove(worker.getUUID());worker.discard();worker=null;}workerTarget=null;workerStuck=0;}
     void release(){if(ticketLevel!=null)for(long key:tickets)ticketLevel.getChunkSource().removeRegionTicket(TICKET,new net.minecraft.world.level.ChunkPos(key),0,key);tickets.clear();ticketLevel=null;}
-    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();deckColumns.clear();pierIndex=0;pierDistance=15;recipeIndex=0;walkVolume.clear();tunnelExcavations.clear();tunnelExcavationIterator=null;planningData=null;}
+    void reset(){planStartedNano=0;nextPlanNotice=0;obliqueRaster=false;release();removeWorker();search=null;recipe.clear();workers.clear();deckColumns.clear();pierIndex=0;pierDistance=15;recipeIndex=0;walkVolume.clear();tunnelExcavations.clear();sealedTunnelInterior.clear();tunnelExcavationIterator=null;planningData=null;}
     public boolean staleWorker(net.minecraft.world.entity.Entity e){return e.getTags().contains("barttolo_adaptive_worker")&&!ACTIVE_WORKERS.contains(e.getUUID());}
     public void shutdown(){reset();}
 }
