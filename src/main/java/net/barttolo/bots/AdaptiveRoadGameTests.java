@@ -1,0 +1,602 @@
+package net.barttolo.bots;
+
+import java.util.function.Consumer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.*;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraftforge.gametest.*;
+
+@GameTestHolder(Bots.ID)
+@PrefixGameTestTemplate(false)
+public final class AdaptiveRoadGameTests {
+    static BlockPos ground(GameTestHelper h,int offset){
+        var l=h.getLevel();BlockPos p=h.absolutePos(new BlockPos(offset,2,0));p=new BlockPos(p.getX(),l.getMaxBuildHeight()-24,offset*2);
+        for(int x=-6;x<=20;x++)for(int z=-8;z<=12;z++){
+            for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.GRASS_BLOCK.defaultBlockState());
+            for(int y=0;y<=9;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        return p;
+    }
+    static AdaptiveRoadConstructor.Data data(GameTestHelper h,BlockPos a,BlockPos b){
+        var d=new AdaptiveRoadConstructor.Data();d.a=a;d.b=b;d.dimension=h.getLevel().dimension().location().toString();return d;
+    }
+    static void route(AdaptiveRoadConstructor.Data d,BlockPos p,int kind){CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.putInt("kind",kind);d.route.add(t);}
+    static CompoundTag journal(BlockPos p,Block before,Block after){
+        CompoundTag t=new CompoundTag();t.putLong("pos",p.asLong());t.put("before",net.minecraft.nbt.NbtUtils.writeBlockState(before.defaultBlockState()));t.put("after",net.minecraft.nbt.NbtUtils.writeBlockState(after.defaultBlockState()));return t;
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void savedPausedUndoRecoversMissingBlocksAndFlowingWater(GameTestHelper h){
+        BlockPos p=ground(h,17804),q=p.east(2);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,q);
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE_BRICKS));d.changes.add(journal(q,Blocks.STONE,Blocks.ANDESITE));
+        d.state="DESHACER_PAUSADO";d.undo=1;
+        l.setBlock(p,Blocks.AIR.defaultBlockState(),2);l.setBlock(q,Blocks.WATER.defaultBlockState(),2);
+        d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));b.startUndo(d,false);loadUndoChunks(h,d);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT)&&l.getBlockState(q).is(Blocks.STONE),"Restore missing masonry and water drift from an old saved paused job");b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void resumeAndCancelPreserveOnlyPendingUndoHistory(GameTestHelper h){
+        BlockPos p=ground(h,18204),q=p.east(2);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,q);
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.changes.add(journal(q,Blocks.DIRT,Blocks.STONE));
+        d.state="DESHACER_PAUSADO";d.undo=0;l.setBlock(p,Blocks.STONE.defaultBlockState(),2);l.setBlock(q,Blocks.BEDROCK.defaultBlockState(),2);
+        b.startUndo(d,false);h.assertTrue(d.undo==0,"Repeating undo resumes the pending index without restarting completed work");
+        b.cancel(d);h.assertTrue(d.state.equals("CONFIGURANDO")&&d.changes.isEmpty()&&d.archives.size()==1&&d.archives.getCompound(0).getList("changes",10).size()==1,"Cancel archives only the remaining restoration history");
+        h.assertTrue(l.getBlockState(p).is(Blocks.STONE)&&AdaptiveRoadConstructor.archiveFinished(d),"Cancel leaves blocks in place and frees creation of another job");
+        d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));h.assertTrue(AdaptiveRoadConstructor.restoreArchive(d),"Recover cancelled history after restart");b.startUndo(d,false);loadUndoChunks(h,d);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT)&&l.getBlockState(q).is(Blocks.BEDROCK),"Restoring cancelled history must never revisit already-undone entries");b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void forceUndoRecoversManualReplacementButRespectsBedrock(GameTestHelper h){
+        BlockPos p=ground(h,18604);var l=h.getLevel();var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(2));
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.state="DESHACER_PAUSADO";d.undo=0;l.setBlock(p,Blocks.GOLD_BLOCK.defaultBlockState(),2);
+        b.startUndo(d,false);loadUndoChunks(h,d);b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.state.equals("DESHACER_PAUSADO")&&d.report.contains("minecraft:gold_block"),"Name a real solid conflict before forcing it");
+        b.startUndo(d,true);d=AdaptiveRoadConstructor.Data.load(d.save(new CompoundTag()));h.assertTrue(d.forceUndo,"Persist forced restoration across restart");b.startUndo(d,false);
+        for(int i=0;i<20&&d.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.changes.isEmpty()&&l.getBlockState(p).is(Blocks.DIRT),"Forced restoration replaces the manually changed block");
+        d.changes.add(journal(p,Blocks.DIRT,Blocks.STONE));d.state="PAUSADO";l.setBlock(p,Blocks.BEDROCK.defaultBlockState(),2);b.startUndo(d,true);b.undoTick(l.getServer(),l,d);
+        h.assertTrue(d.state.equals("DESHACER_PAUSADO")&&l.getBlockState(p).is(Blocks.BEDROCK),"Force never bypasses unbreakable blocks or protection checks");b.cancel(d);h.assertTrue(d.state.equals("CONFIGURANDO"),"Cancel remains available even after an unresolvable protection");b.shutdown();h.succeed();
+    }
+    static void loadUndoChunks(GameTestHelper h,AdaptiveRoadConstructor.Data d){
+        // These tests undo synchronously in one server tick; load their small fixture
+        // first. The production executor naturally waits for chunks across ticks.
+        for(int i=0;i<d.changes.size();i++){
+            BlockPos p=BlockPos.of(d.changes.getCompound(i).getLong("pos"));
+            for(int x:new int[]{-3,3})for(int z:new int[]{-3,3})h.getLevel().getChunkAt(p.offset(x,0,z));
+        }
+    }
+    static void drive(GameTestHelper h,AdaptiveRoadConstructor bot,AdaptiveRoadConstructor.Data d,Consumer<AdaptiveRoadConstructor.Data> ready,Consumer<AdaptiveRoadConstructor.Data> done){
+        // Each test has its own tick clock: other tests synchronously generate large
+        // fixtures on this same server thread. The deadline has a separate real-clock test.
+        final long[] testTime={1};bot.planClock=()->testTime[0];bot.planStartedNano=0;
+        final AdaptiveRoadConstructor.Data[] active={d};final boolean[] checked={false};final GameTestAssertException[] failure={null};
+        h.succeedWhen(()->{
+            testTime[0]+=50_000_000L;
+            if(failure[0]!=null)throw failure[0];
+            var job=active[0];
+            if(job.state.equals("RECHAZADO")||job.state.equals("PAUSADO")){bot.shutdown();h.assertTrue(false,"Adaptive road halted: "+job.summary());return;}
+            int count=job.changes.size();bot.tickProject(h.getLevel().getServer(),job);
+            h.assertTrue(job.changes.size()-count<=8,"At most eight block edits per tick");
+            if(job.state.equals("CONFIRMADO")){ready.accept(job);job.state="CONSTRUYENDO";}
+            if(!checked[0]&&job.cursor>3&&job.state.equals("CONSTRUYENDO")){
+                var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
+                h.assertTrue(restored.state.equals("PAUSADO")&&restored.cursor==job.cursor,"Checkpoint survives restart and pauses");bot.resume(restored);h.assertTrue(restored.state.equals("CONSTRUYENDO"),"Resume continues without another preview/start");active[0]=restored;checked[0]=true;
+            }
+            if(active[0].state.equals("TERMINADO")){try{done.accept(active[0]);}catch(GameTestAssertException e){failure[0]=e;throw e;}bot.shutdown();return;}
+            throw new GameTestAssertException("Waiting for adaptive road: "+active[0].summary());
+        });
+    }
+    static BlockPos liquidBasin(GameTestHelper h,int offset,int depth,boolean lava,boolean diagonal){
+        BlockPos p=ground(h,offset);var l=h.getLevel();int maxZ=diagonal?24:5;
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=maxZ;z++){
+            l.setBlock(p.offset(x,-depth,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=-depth+1;y<=-1;y++){
+                boolean wall=x==-4||x==24||z==-5||z==maxZ;
+                l.setBlock(p.offset(x,y,z),(wall?Blocks.STONE:lava?Blocks.LAVA:Blocks.WATER).defaultBlockState(),2);
+            }
+            for(int y=0;y<=7;y++)l.setBlock(p.offset(x,y,z),Blocks.AIR.defaultBlockState(),2);
+        }
+        return p;
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void tunnelUnderLakeStaysDryWithoutDrainingWaterAboveRoof(GameTestHelper h){
+        BlockPos p=ground(h,19004);var l=h.getLevel();
+        for(int x=1;x<=15;x++)for(int z=-5;z<=5;z++){
+            for(int y=0;y<=4;y++)l.setBlock(p.offset(x,y,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=5;y<=9;y++)l.setBlock(p.offset(x,y,z),(x==1||x==15||Math.abs(z)==5?Blocks.STONE:Blocks.WATER).defaultBlockState(),2);
+        }
+        var d=data(h,p,p.east(16));var b=new AdaptiveRoadConstructor();final long[] clock={1};b.planClock=()->clock[0];b.begin(d);final int[] tick={0},finished={-1};
+        h.succeedWhen(()->{
+            clock[0]+=50_000_000L;tick[0]++;b.tickProject(l.getServer(),d);
+            h.assertTrue(!d.state.equals("PAUSADO")&&!d.state.equals("RECHAZADO"),"Under-lake tunnel must build: "+d.summary());
+            if(d.state.equals("CONFIRMADO"))d.state="CONSTRUYENDO";
+            if(d.state.equals("TERMINADO")){
+                if(finished[0]<0){finished[0]=tick[0];b.shutdown();}
+                if(tick[0]-finished[0]>=100){
+                    for(int x=0;x<=16;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir()&&l.getFluidState(p.offset(x,y,z)).isEmpty(),"Keep the full under-lake passage dry after fluid ticks");
+                    h.assertTrue(l.getBlockState(p.offset(8,5,0)).isSolid()&&l.getBlockState(p.offset(8,7,0)).is(Blocks.WATER),"Seal the roof while preserving the lake above it");return;
+                }
+            }
+            throw new GameTestAssertException("Waiting for under-lake tunnel: "+d.summary());
+        });
+    }
+    static void ravineWaterfallCrossing(GameTestHelper h,boolean lava){
+        var l=h.getLevel();int offset=lava?17404:17004;BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
+        BlockPos p=new BlockPos(origin.getX(),45,offset*2);
+        for(int x=-5;x<=5;x++)for(int z=-4;z<=44;z++){
+            l.setBlock(p.offset(x,-25,z),Blocks.STONE.defaultBlockState(),2);
+            for(int y=-24;y<=13;y++)l.setBlock(p.offset(x,y,z),Blocks.AIR.defaultBlockState(),2);
+        }
+        // A narrow handmade dirt line across a deep ravine, matching the reported case.
+        for(int z=0;z<=40;z++)l.setBlock(p.offset(0,-1,z),Blocks.DIRT.defaultBlockState(),2);
+        for(int x=-4;x<=4;x++)for(int z=19;z<=20;z++)for(int y=-24;y<=12;y++)
+            l.setBlock(p.offset(x,y,z),(lava?Blocks.LAVA:Blocks.WATER).defaultBlockState(),2);
+        var d=data(h,p,p.south(40));var b=new AdaptiveRoadConstructor();final long[] clock={1};b.planClock=()->clock[0];b.begin(d);
+        final int[] ticks={0},finished={-1};
+        h.succeedWhen(()->{
+            ticks[0]++;clock[0]+=50_000_000L;b.tickProject(l.getServer(),d);
+            h.assertTrue(!d.state.equals("PAUSADO")&&!d.state.equals("RECHAZADO"),"Waterfall crossing must not halt: "+d.summary());
+            if(d.state.equals("CONFIRMADO")){
+                int covered=0;for(int i=0;i<d.route.size();i++)if(d.route.getCompound(i).getBoolean("liquidCover"))covered++;
+                h.assertTrue(covered>0&&covered<d.route.size(),"Cover only the waterfall crossing, keeping the rest of the bridge open");
+                d.state="CONSTRUYENDO";
+            }
+            if(d.state.equals("TERMINADO")){
+                if(finished[0]<0){finished[0]=ticks[0];b.shutdown();}
+                if(ticks[0]-finished[0]>=(lava?240:100)){
+                    for(int z=0;z<=40;z++)for(int x=-2;x<=2;x++){
+                        h.assertTrue(l.getBlockState(p.offset(x,-1,z)).isSolid(),"Continuous five-wide ravine deck");
+                        for(int y=0;y<5;y++)h.assertTrue(l.getFluidState(p.offset(x,y,z)).isEmpty()&&l.getBlockState(p.offset(x,y,z)).isAir(),"Keep the crossing dry after external liquid has flowed: "+p.offset(x,y,z));
+                    }
+                    h.assertTrue(l.getBlockState(p.offset(0,5,20)).isSolid(),"Seal the falling liquid above the crossing");
+                    h.assertTrue(!l.getFluidState(p.offset(4,8,20)).isEmpty(),"Keep the waterfall outside the construction volume");
+                    return;
+                }
+            }
+            throw new GameTestAssertException("Waiting for ravine waterfall crossing: "+d.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void fortyBlockRavineBridgeCrossesWaterfallAndStaysDry(GameTestHelper h){ravineWaterfallCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void fortyBlockRavineBridgeCrossesLavafallAndStaysDry(GameTestHelper h){ravineWaterfallCrossing(h,true);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void straight75BlockMineTunnelReplacesAndRestoresChestAndSpawner(GameTestHelper h){
+        var l=h.getLevel();BlockPos origin=h.absolutePos(new BlockPos(16204,0,0));
+        BlockPos p=new BlockPos(origin.getX(),31,32408);
+        for(int x=-3;x<=78;x++)for(int z=-3;z<=3;z++)for(int y=-2;y<=7;y++)
+            l.setBlock(p.offset(x,y,z),Blocks.STONE.defaultBlockState(),2);
+        BlockPos chest=p.offset(2,1,0),spawner=p.offset(38,2,1);
+        l.setBlock(chest,Blocks.CHEST.defaultBlockState(),2);
+        ((net.minecraft.world.level.block.entity.ChestBlockEntity)l.getBlockEntity(chest)).setItem(0,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND,7));
+        l.setBlock(spawner,Blocks.SPAWNER.defaultBlockState(),2);
+        CompoundTag spawnerData=l.getBlockEntity(spawner).saveWithFullMetadata();
+        var d=data(h,p,p.east(75));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==76,"Keep a straight 75-block tunnel through mine block entities");
+            for(int i=1;i<job.route.size();i++)h.assertTrue(BlockPos.of(job.route.getCompound(i).getLong("pos")).equals(p.east(i)),"Do not detour around replaceable mine blocks");
+        },job->{
+            h.assertTrue(l.getBlockState(chest).isAir()&&l.getBlockState(spawner).isAir(),"Remove chest and spawner from the passage");
+            for(int x=5;x<=70;x+=5)h.assertTrue(l.getBlockState(p.offset(x,5,0)).is(Blocks.GLOWSTONE),"Five-block ceiling light spacing");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty(),"Undo the complete mine tunnel");
+            var restored=(net.minecraft.world.level.block.entity.ChestBlockEntity)l.getBlockEntity(chest);
+            h.assertTrue(restored!=null&&restored.getItem(0).is(net.minecraft.world.item.Items.DIAMOND)&&restored.getItem(0).getCount()==7,"Restore chest inventory without dropping duplicate contents");
+            h.assertTrue(l.getBlockEntity(spawner)!=null&&l.getBlockEntity(spawner).saveWithFullMetadata().equals(spawnerData),"Restore spawner data");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void unbreakableDirectObstacleReportsExactBlockWithoutSearching(GameTestHelper h){
+        BlockPos p=ground(h,16604);var l=h.getLevel();BlockPos obstacle=p.offset(2,1,0);
+        l.setBlock(obstacle,Blocks.BEDROCK.defaultBlockState(),2);
+        var d=data(h,p,p.east(15));var b=new AdaptiveRoadConstructor();b.begin(d);
+        h.succeedWhen(()->{
+            b.tickProject(l.getServer(),d);
+            h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("minecraft:bedrock")&&d.report.contains(obstacle.toString())&&d.changes.isEmpty(),"Immediately identify the exact unbreakable block without changing the world");
+            b.shutdown();
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void deepWaterPiersUseSteppedInvertedStairCapsAndUndoPlants(GameTestHelper h){
+        BlockPos p=liquidBasin(h,14604,80,false,false);var l=h.getLevel();
+        // A pre-existing deck must also be recognized as suspended.
+        for(int x=0;x<=20;x++)for(int z=-2;z<=2;z++)l.setBlock(p.offset(x,-1,z),Blocks.STONE_BRICKS.defaultBlockState(),2);
+        l.setBlock(p.offset(15,-20,0),Blocks.OAK_LOG.defaultBlockState(),2);
+        l.setBlock(p.offset(15,-79,0),Blocks.SEAGRASS.defaultBlockState(),2);
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.piers==2&&job.pierBlocks>1000,"Plan full-depth centered piers fifteen blocks apart");
+            int inverted=0;for(int i=0;i<job.tasks.size();i++){
+                var state=b.read(l,job.tasks.getCompound(i),"after");
+                if(state.getBlock() instanceof StairBlock&&state.getValue(StairBlock.HALF)==Half.TOP)inverted++;
+            }
+            // The first pier sits at the bridge start, so its rear half is clipped by the deck boundary.
+            // The interior pier still has the complete 18-stair cap; together the plan must include at least 30.
+            h.assertTrue(inverted>=30,"Plan visible inverted-stair tiers under the deck; actual="+inverted);
+            var saved=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
+            h.assertTrue(saved.piers==2&&saved.pierBlocks==job.pierBlocks,"Persist pier counters");
+        },job->{
+            for(int x=14;x<=16;x++)for(int z=-1;z<=1;z++)
+                h.assertTrue(l.getFluidState(p.offset(x,-60,z)).isEmpty()&&l.getBlockState(p.offset(x,-60,z)).isSolid(),"Centered 3-by-3 shaft reaches the bed, deeper than 32");
+            h.assertTrue(l.getBlockState(p.offset(15,-60,3)).is(Blocks.WATER)&&l.getBlockState(p.offset(7,-60,0)).is(Blocks.WATER),"Keep water around and between the narrower piers");
+            h.assertTrue(!l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG),"Remove trunks instead of using them as a foundation");
+            for(int x=14;x<=16;x++)for(int z:new int[]{-2,2})for(int y:new int[]{-2,-3})
+                h.assertTrue(l.getBlockState(p.offset(x,y,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,y,z)).getValue(StairBlock.HALF)==Half.TOP,"Build two tiers of inverted stairs directly under the bridge");
+            for(int x=14;x<=16;x++)for(int z:new int[]{-3,3})
+                h.assertTrue(l.getBlockState(p.offset(x,-2,z)).getBlock() instanceof StairBlock&&l.getBlockState(p.offset(x,-2,z)).getValue(StairBlock.HALF)==Half.TOP,"Upper stair tier reaches the deck edges");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<2000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty(),"Undo complete deep piers: "+job.summary());
+            h.assertTrue(l.getBlockState(p.offset(15,-60,0)).is(Blocks.WATER)&&l.getBlockState(p.offset(15,-20,0)).is(Blocks.OAK_LOG)&&l.getBlockState(p.offset(15,-79,0)).is(Blocks.SEAGRASS),"Restore water and removed vegetation");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void lavaBridgePiersReachSolidBed(GameTestHelper h){
+        BlockPos p=liquidBasin(h,15004,12,true,false);var l=h.getLevel();
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.piers==2,"Detect lava and plan piers"),job->{
+            h.assertTrue(l.getFluidState(p.offset(15,-10,0)).isEmpty()&&l.getBlockState(p.offset(15,-10,0)).isSolid(),"Pier replaces lava to the bed");
+            h.assertTrue(l.getBlockState(p.offset(7,-10,0)).is(Blocks.LAVA),"Leave lava between piers");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;loadUndoChunks(h,job);
+            for(int i=0;i<1000&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(15,-10,0)).is(Blocks.LAVA),"Undo lava pillars: "+job.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void diagonalPiersFollowTheDeckAndReachBed(GameTestHelper h){
+        BlockPos p=liquidBasin(h,15404,9,false,true);var l=h.getLevel();
+        var d=data(h,p,p.offset(20,0,20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.piers==2,"Space diagonal piers by horizontal distance, not node count"),job->{
+            h.assertTrue(l.getBlockState(p.offset(11,-8,11)).isSolid()&&l.getBlockState(p.offset(11,-9,11)).is(Blocks.STONE),"Rotated pier reaches its foundation");
+            h.assertTrue(l.getBlockState(p.offset(5,-8,5)).is(Blocks.WATER),"Keep a clear span between diagonal piers");
+        });
+    }
+    static void steepDescendingCrossing(GameTestHelper h,boolean oblique){
+        var l=h.getLevel();int offset=oblique?14204:13804;
+        BlockPos origin=h.absolutePos(new BlockPos(offset,0,0));
+        BlockPos p=new BlockPos(origin.getX(),160,offset*2);
+        for(int x=-4;x<=4;x++)for(int z=-108;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.STONE.defaultBlockState());
+            for(int y=0;y<=36;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        if(oblique)for(int x=-4;x<=15;x++)for(int z=-108;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.STONE.defaultBlockState());
+            for(int y=0;y<=36;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p.above(30),p.offset(oblique?11:0,0,-104));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==105,"Plan the direct 104-block crossing with thirty blocks of descent");
+            h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(104).getLong("pos")).equals(job.b),"Preserve requested endpoint heights");
+            int drops=0,last=-100;
+            for(int i=1;i<job.route.size();i++){
+                int delta=BlockPos.of(job.route.getCompound(i-1).getLong("pos")).getY()-BlockPos.of(job.route.getCompound(i).getLong("pos")).getY();
+                h.assertTrue(delta>=0&&delta<=1,"Every step descends by at most one block");
+                if(delta>0){h.assertTrue(i-last>=3,"Thirty-block descent uses spaced stairs");last=i;drops++;}
+            }
+            h.assertTrue(drops==30,"Reach all thirty levels of descent");
+        },job->{
+            int stairs=0;
+            for(int i=0;i<job.route.size();i++){
+                BlockPos foot=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                h.assertTrue(!l.getBlockState(foot.below()).getCollisionShape(l,foot.below()).isEmpty(),"Descending deck stays continuous");
+                h.assertTrue(l.getBlockState(foot).isAir(),"Descending centerline stays clear");
+                if(l.getBlockState(foot.below()).getBlock() instanceof StairBlock)stairs++;
+            }
+            h.assertTrue(stairs>=30,"Build a stair at every descent");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void thirtyBlockDescentOver104Blocks(GameTestHelper h){steepDescendingCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void obliqueThirtyBlockDescentOver104Blocks(GameTestHelper h){steepDescendingCrossing(h,true);}
+    static void slopingObliqueCrossing(GameTestHelper h,boolean descending){
+        BlockPos p=ground(h,descending?13004:12604);var l=h.getLevel();
+        for(int x=-4;x<=153;x++)for(int z=-4;z<=15;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=8;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,descending?p.above(2):p,descending?p.offset(149,0,11):p.offset(149,2,11));
+        var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==150,"Use a direct route for a 149-by-11 crossing with two blocks of elevation");
+            h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(149).getLong("pos")).equals(job.b),"Keep both endpoint heights");
+            int last=-100;
+            for(int i=1;i<job.route.size();i++)if(BlockPos.of(job.route.getCompound(i).getLong("pos")).getY()!=BlockPos.of(job.route.getCompound(i-1).getLong("pos")).getY()){
+                h.assertTrue(i-last>=4,"Space vertical steps by four horizontal sections");last=i;
+            }
+        },job->{
+            int stairs=0;
+            for(int i=0;i<job.route.size();i++){
+                BlockPos foot=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                h.assertTrue(!l.getBlockState(foot.below()).getCollisionShape(l,foot.below()).isEmpty(),"Continuous sloped deck");
+                h.assertTrue(l.getBlockState(foot).isAir(),"No railing blocks the sloping centerline");
+                if(l.getBlockState(foot.below()).getBlock() instanceof StairBlock)stairs++;
+            }
+            h.assertTrue(stairs>=2,"Construct matching stair transitions");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void directObliqueBridgeAscendsTwoBlocks(GameTestHelper h){slopingObliqueCrossing(h,false);}
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void directObliqueBridgeDescendsTwoBlocks(GameTestHelper h){slopingObliqueCrossing(h,true);}
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void markingBPlansAndPreviewsWithoutExtraCommands(GameTestHelper h){
+        BlockPos p=ground(h,11004);var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(8));
+        var dispatcher=new com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack>();b.register(dispatcher);
+        var commands=dispatcher.getRoot().getChild("bot").getChild("constructor");
+        h.assertTrue(commands.getChild("planificar")==null&&commands.getChild("vista")==null,"Remove redundant commands");
+        h.assertTrue(commands.getChild("cancelar")!=null&&commands.getChild("deshacer").getChild("forzar")!=null,"Expose cancellation and forced restoration commands");
+        h.assertTrue(b.markBAndPlan(d,p.east(8))==null&&d.state.equals("PLANIFICANDO"),"Marking B immediately starts planning");
+        drive(h,b,d,job->h.assertTrue(job.previewTicks>0&&job.piers==0,"Automatically preview a ground road without piers"),
+            job->h.assertTrue(job.state.equals("TERMINADO"),"Complete the simplified flow"));
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void continueInterruptedPlanningBuildsWithoutAnotherStart(GameTestHelper h){
+        BlockPos p=ground(h,11404);var b=new AdaptiveRoadConstructor();var d=data(h,p,p.east(8));
+        b.begin(d);b.shutdown();d.state="PAUSADO";b.resume(d);
+        h.assertTrue(d.resumeAfterPlan&&d.state.equals("PLANIFICANDO"),"Continue authorizes completion after replanning");
+        drive(h,b,d,job->h.assertTrue(false,"A resumed plan must not wait for another start"),
+            job->h.assertTrue(job.state.equals("TERMINADO"),"Resume planning and construction in one step"));
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void nonPlayerObstructionIsDiscardedWithoutPausing(GameTestHelper h){
+        BlockPos p=ground(h,11804);var l=h.getLevel();var b=new AdaptiveRoadConstructor();
+        var pig=net.minecraft.world.entity.EntityType.PIG.create(l);
+        pig.setNoAi(true);pig.setNoGravity(true);pig.setInvulnerable(true);
+        pig.setCustomName(net.minecraft.network.chat.Component.literal("Obstruction"));
+        pig.moveTo(p.getX()+.5,p.getY(),p.getZ()+.5,0,0);l.addFreshEntity(pig);
+        h.assertTrue(b.clearObstructions(l,p)&&pig.isRemoved(),"Discard a named invulnerable mob occupying the next block");
+        b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=100)
+    public static void planningDeadlineRejectsWithoutChangingWorld(GameTestHelper h){
+        var b=new AdaptiveRoadConstructor();BlockPos p=h.absolutePos(new BlockPos(1,3,1));
+        var d=data(h,p,p.east(160));b.begin(d);b.planStartedNano=System.nanoTime()-61_000_000_000L;
+        b.tickProject(h.getLevel().getServer(),d);
+        h.assertTrue(d.state.equals("RECHAZADO")&&d.report.contains("60 s")&&d.changes.isEmpty(),"Stop overdue planning with a clear message and no changes");
+        b.shutdown();h.succeed();
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void arbitraryAngleLongCrossingCutsThroughHill(GameTestHelper h){
+        BlockPos p=ground(h,10004);var l=h.getLevel();
+        for(int x=-4;x<=164;x++)for(int z=-4;z<=65;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),x>=35&&x<=45?Blocks.STONE.defaultBlockState():Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p,p.offset(160,0,61));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==161&&job.cut>0,"Direct arbitrary-angle route must cut the hill");
+            h.assertTrue(BlockPos.of(job.route.getCompound(160).getLong("pos")).equals(job.b),"Reach the selected B");
+        },job->{
+            for(int i=0;i<=160;i++){
+                int z=(int)Math.round(61.0*i/160);
+                for(int x=-2;x<=2;x++)for(int side=-2;side<=2;side++){
+                    h.assertTrue(l.getBlockState(p.offset(i+x,-1,z+side)).isSolid(),"Continuous oblique deck");
+                    h.assertTrue(l.getBlockState(p.offset(i+x,0,z+side)).isAir(),"No railing or hill obstructs the corridor");
+                }
+            }
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void levelDiagonalBridgeHasContinuousDeckAndCenteredLights(GameTestHelper h){
+        BlockPos p=ground(h,9004);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-4;z<=24;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=6;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        h.assertTrue(AdaptiveRoadConstructor.stairMaterial(Blocks.SMOOTH_SANDSTONE.defaultBlockState()).is(Blocks.SMOOTH_SANDSTONE_STAIRS),"Match sandstone stairs to sandstone pavement");
+        h.assertTrue(AdaptiveRoadConstructor.stairMaterial(Blocks.MANGROVE_PLANKS.defaultBlockState()).is(Blocks.MANGROVE_STAIRS),"Match mangrove stairs to wood pavement");
+        var d=data(h,p,p.offset(20,0,20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"Direct diagonal must not explore a cardinal detour");
+            h.assertTrue(job.lights>=4&&job.lights%2==0,"Diagonal has paired lighting along both sides");
+            int pairCount=0;
+            for(int i=0;i<job.lamps.size();i++){
+                BlockPos lamp=BlockPos.of(job.lamps.getCompound(i).getLong("pos"));
+                BlockPos center=null;double nearest=Double.MAX_VALUE;
+                for(int r=0;r<job.route.size();r++){
+                    BlockPos candidate=BlockPos.of(job.route.getCompound(r).getLong("pos"));
+                    double distance=lamp.distSqr(candidate);
+                    if(distance<nearest){nearest=distance;center=candidate;}
+                }
+                h.assertTrue(center!=null&&lamp.getX()+lamp.getZ()==center.getX()+center.getZ()&&lamp.getY()==center.getY()-1,"Paired floor lights stay level and symmetric at their route section: lamp="+lamp+" center="+center);
+                h.assertTrue(Math.abs((lamp.getX()-p.getX())-(lamp.getZ()-p.getZ()))==2,"Lights sit one block to either side of the centerline");pairCount++;
+            }
+            h.assertTrue(pairCount==job.lights,"Every recorded floor light is part of a symmetric pair");
+        },job->{
+            for(int i=0;i<=20;i++)for(int x=-2;x<=2;x++)for(int z=-2;z<=2;z++)
+                h.assertTrue(l.getBlockState(p.offset(i+x,-1,i+z)).isSolid(),"Diagonal deck has no gaps");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void eightyBlockBridgeArchivesAndRestoresUndoAfterRestart(GameTestHelper h){
+        BlockPos p=ground(h,7204);var l=h.getLevel();
+        for(int x=-4;x<=84;x++)for(int z=-5;z<=5;z++){
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+            for(int y=0;y<=6;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p,p.east(80));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.bridges==81,"Plan a continuous eighty-block bridge"),job->{
+            int count=job.changes.size();
+            h.assertTrue(AdaptiveRoadConstructor.archiveFinished(job),"A completed project can be archived");
+            h.assertTrue(job.changes.isEmpty()&&job.archives.size()==1,"Free the active project without deleting blocks");
+            h.assertTrue(l.getBlockState(p.east(40).below()).isSolid(),"Archived bridge stays in the world");
+            var restored=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
+            h.assertTrue(AdaptiveRoadConstructor.restoreArchive(restored)&&restored.changes.size()==count,"Keep undo history through restart");
+            restored.undo=count-1;restored.state="DESHACIENDO";
+            loadUndoChunks(h,restored);
+            for(int i=0;i<1000&&restored.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,restored);
+            h.assertTrue(restored.changes.isEmpty()&&l.getBlockState(p.east(40).below()).is(Blocks.WATER),"Undo archived bridge restores the river: "+restored.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void riverAtDeckHeightWithAquaticPlantsAndOneBlockRise(GameTestHelper h){
+        BlockPos p=ground(h,6804);var l=h.getLevel();
+        for(int x=2;x<=6;x++)for(int z=-4;z<=4;z++){
+            l.setBlockAndUpdate(p.offset(x,-3,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-2,z),Blocks.WATER.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.WATER.defaultBlockState());
+        }
+        l.setBlockAndUpdate(p.offset(4,-2,0),Blocks.SEAGRASS.defaultBlockState());
+        for(int x=7;x<=12;x++)for(int z=-4;z<=4;z++)l.setBlockAndUpdate(p.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
+        var d=data(h,p,p.offset(8,1,0));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->h.assertTrue(job.bridges>0&&job.route.size()==9,"Direct river crossing with different bank heights"),
+            job->{
+                h.assertTrue(job.cursor==job.tasks.size(),"Finish the river crossing");
+                job.state="DESHACIENDO";job.undo=job.changes.size()-1;
+                loadUndoChunks(h,job);
+            for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+                h.assertTrue(job.changes.isEmpty(),"Undo the complete bridge");
+                h.assertTrue(l.getBlockState(p.offset(3,-1,0)).is(Blocks.WATER),"Restore river water");
+            });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void findsOffAxisRouteAcrossDifferentHeightsAndExcavates(GameTestHelper h){
+        BlockPos p=ground(h,5000);var l=h.getLevel();
+        for(int x=5;x<=15;x++)for(int z=-7;z<=10;z++){
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.DIRT.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,0,z),Blocks.DIRT.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,1,z),Blocks.GRASS_BLOCK.defaultBlockState());
+        }
+        l.setBlockAndUpdate(p.offset(8,2,2),Blocks.STONE.defaultBlockState()); // Explicit obstacle: the early ramp may otherwise clear the hill naturally.
+        var d=data(h,p,p.offset(10,2,4));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            int previousStep=-100;
+            for(int i=1;i<job.route.size();i++){
+                BlockPos a=BlockPos.of(job.route.getCompound(i-1).getLong("pos")),z=BlockPos.of(job.route.getCompound(i).getLong("pos"));
+                if(a.getY()!=z.getY()){h.assertTrue(i-previousStep>=4,"Vertical steps must have three flat sections between them");previousStep=i;}
+            }
+            h.assertTrue(job.lights>0,"The route must include lighting");
+            h.assertTrue(job.route.size()>10&&job.cut>0,"Search must find a non-cardinal, different-height route with excavation");
+            h.assertTrue(BlockPos.of(job.route.getCompound(0).getLong("pos")).equals(job.a)&&BlockPos.of(job.route.getCompound(job.route.size()-1).getLong("pos")).equals(job.b),"Route must preserve both endpoints");
+        },job->{
+            boolean stairs=false;for(int i=0;i<job.tasks.size();i++){var t=job.tasks.getCompound(i);if(t.getCompound("after").getString("Name").equals("minecraft:stone_brick_stairs"))stairs=true;}
+            h.assertTrue(stairs&&job.changes.size()>0,"Construct traversable stairs and keep undo journal");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void tunnelHasFiveByFiveClearanceAndAllowsReplaceableChest(GameTestHelper h){
+        BlockPos p=ground(h,5256);var l=h.getLevel();
+        for(int x=2;x<=6;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+        // Exercise water and lava inside the corridor, across one side, and in the roof.
+        for(int x=2;x<=6;x++){
+            l.setBlockAndUpdate(p.offset(x,2,0),(x%2==0?Blocks.WATER:Blocks.LAVA).defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,5,0),(x%2==0?Blocks.LAVA:Blocks.WATER).defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,2,3),Blocks.LAVA.defaultBlockState());
+        }
+        var d=data(h,p,p.east(8));var b=new AdaptiveRoadConstructor();b.begin(d);
+
+        l.setBlockAndUpdate(p.offset(12,0,0),Blocks.CHEST.defaultBlockState());
+        h.assertTrue(b.survey(l,p.east(12))!=null,"Allow removing a replaceable chest from the corridor");
+        l.setBlockAndUpdate(p.east(18).below(),Blocks.AIR.defaultBlockState());
+        for(int y=2;y<=14;y++)l.setBlockAndUpdate(p.east(18).below(y),Blocks.OAK_LEAVES.defaultBlockState());
+        h.assertTrue(b.survey(l,p.east(18))!=null,"A deck may span leaves or air without a foundation");
+        drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125&&job.piers==0,"Count tunnel sections without adding piers"),job->{
+            for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
+            h.assertTrue(l.getBlockState(p.offset(4,5,0)).isSolid()&&l.getFluidState(p.offset(4,5,0)).isEmpty(),"Seal a water/lava roof with masonry");
+            h.assertTrue(l.getBlockState(p.offset(4,2,3)).isSolid()&&l.getFluidState(p.offset(4,2,3)).isEmpty(),"Build a side wall between the tunnel and lava");
+            h.assertTrue(l.getBlockState(p.offset(4,2,0)).isAir()&&l.getFluidState(p.offset(4,2,0)).isEmpty(),"Remove water/lava from the five-high interior");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void bridgeHasDeckRailsPiersAndCanUndoConnectedWalls(GameTestHelper h){
+        BlockPos p=ground(h,5512);var l=h.getLevel();
+        for(int x=-4;x<=12;x++)for(int z=-5;z<=5;z++){
+            if(x>=3&&x<=5){for(int y=-3;y<=-1;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.WATER.defaultBlockState());}
+            else l.setBlockAndUpdate(p.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());
+        }
+        var d=data(h,p.above(),p.offset(8,1,0));var b=new AdaptiveRoadConstructor();b.begin(d);
+
+        drive(h,b,d,job->h.assertTrue(job.bridges>=3&&job.lights>0,"Automatically choose a bridge over the river"),job->{
+            for(int x=3;x<=5;x++){
+                for(int z=-2;z<=2;z++)h.assertTrue(l.getBlockState(p.offset(x,0,z)).isSolid(),"Continuous five-wide bridge deck");
+                for(int z:new int[]{-3,3})h.assertTrue(l.getBlockState(p.offset(x,1,z)).getBlock() instanceof WallBlock,"Bridge railings stay outside the five-wide deck");
+            }
+            h.assertTrue(l.getBlockState(p.offset(5,-2,0)).is(Blocks.WATER),"Bridge does not require or fill pillars");
+            job.state="DESHACIENDO";job.undo=job.changes.size()-1;
+            for(int i=0;i<100&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(4,0,0)).isAir(),"Undo must also handle auto-connected wall states");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void findsShortStraightRouteAcrossFrozenSurface(GameTestHelper h){
+        BlockPos p=ground(h,5652);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++){
+            for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.PACKED_ICE.defaultBlockState());
+            for(int y=0;y<=9;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"A twenty-block straight path should plan as twenty-one sections");
+            h.assertTrue(job.roads==21&&job.bridges==0&&job.tunnels==0,"Frozen level ground should remain a road");
+            l.setBlockAndUpdate(p.below(),Blocks.DIRT.defaultBlockState()); // Terrain changes after planning must not stop placement.
+        },job->h.assertTrue(job.cursor==job.tasks.size(),"Finish the frozen-surface route"));
+    }
+    @GameTest(template="empty",timeoutTicks=2400)
+    public static void spansDeepTwentyBlockRavineWithSupportedBridge(GameTestHelper h){
+        BlockPos p=ground(h,6404);var l=h.getLevel();
+        for(int x=-4;x<=24;x++)for(int z=-5;z<=5;z++){
+            for(int y=-5;y<=-2;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-1,z),Blocks.GRASS_BLOCK.defaultBlockState());
+            for(int y=0;y<=9;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+        }
+        for(int x=3;x<=17;x++)for(int z=-4;z<=4;z++){
+            for(int y=-1;y>=-23;y--)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.AIR.defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,-24,z),Blocks.STONE.defaultBlockState());
+        }
+        var d=data(h,p.above(),p.east(20).above());var b=new AdaptiveRoadConstructor();
+        for(int x=0;x<=20;x++)h.assertTrue(b.survey(l,p.east(x).above())!=null,"Survey crossing section "+x);
+        b.begin(d);
+        drive(h,b,d,job->{
+            h.assertTrue(job.route.size()==21,"Keep the direct twenty-block crossing");
+            h.assertTrue(job.bridges>=10,"Classify the unsupported ravine span as a bridge");
+        },job->{
+            h.assertTrue(l.getBlockState(p.offset(10,0,0)).isSolid(),"Bridge deck crosses the ravine");
+            h.assertTrue(l.getBlockState(p.offset(10,-24,0)).is(Blocks.STONE),"Keep the ravine bed intact");
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=1600)
+    public static void lightsPreserveTunnelClearanceAndAreJournaled(GameTestHelper h){
+        BlockPos p=ground(h,5800);var l=h.getLevel();
+        for(int x=2;x<=14;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+        var d=data(h,p,p.east(16));var b=new AdaptiveRoadConstructor();b.begin(d);
+        for(int x=0;x<=16;x++)route(d,p.east(x),x>=2&&x<=14?2:0);d.state="DISEÑANDO";
+        drive(h,b,d,job->{
+            h.assertTrue(job.lights>=2,"Plan lights on a long tunnel");
+            boolean ceiling=false;for(int i=0;i<job.lamps.size();i++)if(job.lamps.getCompound(i).getString("type").equals("ceiling"))ceiling=true;
+            h.assertTrue(ceiling,"Use an embedded ceiling light inside the tunnel");
+        },job->{
+            h.assertTrue(l.getBlockState(p.offset(10,5,0)).is(Blocks.GLOWSTONE),"Embedded light must be above the five-high clearance");
+            h.assertTrue(l.getBlockState(p.offset(5,5,0)).is(Blocks.GLOWSTONE),"Tunnel ceiling lights are five blocks apart");
+            for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(10,y,z)).isAir(),"Lighting must not obstruct the tunnel");
+            job.undo=job.changes.size()-1;job.state="DESHACIENDO";
+            loadUndoChunks(h,job);
+            for(int i=0;i<300&&job.state.equals("DESHACIENDO");i++)b.undoTick(l.getServer(),l,job);
+            h.assertTrue(job.changes.isEmpty()&&l.getBlockState(p.offset(10,5,0)).is(Blocks.STONE),"Undo must restore the embedded light and excavations: "+job.summary());
+        });
+    }
+    @GameTest(template="empty",timeoutTicks=200)
+    public static void visualWorkerWalksInSmallCollisionCheckedSteps(GameTestHelper h){
+        BlockPos p=ground(h,6100);var l=h.getLevel();var b=new AdaptiveRoadConstructor();
+        try{
+            b.showWorker(l,p);
+            var entities=l.getEntitiesOfClass(net.minecraft.world.entity.npc.Villager.class,new net.minecraft.world.phys.AABB(p).inflate(8),e->e.getTags().contains("barttolo_adaptive_worker"));
+            h.assertTrue(entities.size()==1,"Spawn a visible mason worker");var worker=entities.get(0);double start=worker.getX();
+            b.showWorker(l,p.east(5));
+            for(int i=0;i<10;i++){var old=worker.position();b.walkWorker(l);h.assertTrue(worker.position().distanceTo(old)<=.19,"Worker must walk, not teleport across the section");}
+            h.assertTrue(worker.getX()>start+1&&worker.getX()<start+3,"Worker must visibly approach its target gradually");
+            h.succeed();
+        }finally{b.shutdown();}
+    }
+
+}

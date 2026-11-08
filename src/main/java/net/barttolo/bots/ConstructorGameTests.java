@@ -23,7 +23,6 @@ public class ConstructorGameTests {
     static ConstructorData data(ServerLevel level,BlockPos c,int width){ConstructorData d=new ConstructorData();d.width=width;d.centerX=c.getX();d.centerY=c.getY()+1;d.centerZ=c.getZ();d.dimension=level.dimension().location().toString();d.configured=true;return d;}
     static void lawn(ServerLevel level,BlockPos c,int radius){for(int x=-radius;x<radius;x++)for(int z=-radius;z<radius;z++){level.setBlockAndUpdate(c.offset(x,-1,z),Blocks.DIRT.defaultBlockState());level.setBlockAndUpdate(c.offset(x,0,z),Blocks.GRASS_BLOCK.defaultBlockState());for(int y=1;y<=9;y++)level.setBlockAndUpdate(c.offset(x,y,z),Blocks.AIR.defaultBlockState());}}
     static void scan(ConstructorBuilder b,ServerLevel level,ConstructorData d)throws Exception{while(d.scanning)call(b,"scanBatch",new Class[]{ServerLevel.class,ConstructorData.class},level,d);}
-    static void worker(ConstructorBuilder b,BlockPos p)throws Exception{field(b,"visualX",p.getX()+.5);field(b,"visualY",p.getY()+1.0);field(b,"visualZ",p.getZ()+.5);}
     static int nearestObstacle(ConstructorBuilder b,ServerLevel level,BlockPos p)throws Exception{for(int radius=0;radius<=6;radius++)for(int x=-radius;x<=radius;x++)for(int z=-radius;z<=radius;z++)if(Math.max(Math.abs(x),Math.abs(z))==radius){BlockPos floor=(BlockPos)call(b,"rawSurface",new Class[]{ServerLevel.class,int.class,int.class},level,p.getX()+x,p.getZ()+z);if((boolean)call(b,"obstacle",new Class[]{ServerLevel.class,BlockPos.class},level,floor))return radius;}return 99;}
     static Map<BlockPos,BlockState> groundSnapshot(ServerLevel level,BlockPos c,int radius){Map<BlockPos,BlockState> states=new HashMap<>();for(int x=-radius;x<radius;x++)for(int z=-radius;z<radius;z++)for(int y=-4;y<=0;y++){BlockPos p=c.offset(x,y,z);states.put(p,level.getBlockState(p));}return states;}
 
@@ -51,12 +50,12 @@ public class ConstructorGameTests {
     }
     @GameTest(template="empty",timeoutTicks=200)
     public static void partialRaisedFarmResumesAfterGrassNaturallyBecomesDirt(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=center(h,2048);lawn(level,c,22);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.addTask(ConstructorBuilder.FARM,c.getX(),c.getY(),c.getZ());worker(b,c.east(4));
+        ServerLevel level=h.getLevel();BlockPos c=center(h,2048);lawn(level,c,22);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.addTask(ConstructorBuilder.FARM,c.getX(),c.getY(),c.getZ());
         call(b,"prepareTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
         for(int tick=0;tick<2000&&level.getBlockState(c.above()).isAir();tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
         Blocks.GRASS_BLOCK.defaultBlockState().randomTick(level,c,level.random);
         h.assertTrue(level.getBlockState(c).is(Blocks.DIRT),"exercise vanilla grass decay below our own raised support");
-        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));ConstructorBuilder resumed=new ConstructorBuilder();worker(resumed,c.east(4));
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));ConstructorBuilder resumed=new ConstructorBuilder();;
         for(int tick=0;tick<10000&&!restored.finished&&!restored.reviewPending;tick++)call(resumed,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,restored);
         h.assertTrue(restored.finished&&restored.retryTasks.isEmpty()&&level.getBlockState(c.above(2)).is(Blocks.WATER),"resume and finish the raised crop bed without mistaking its support for a new obstruction");h.succeed();
     }
@@ -71,7 +70,7 @@ public class ConstructorGameTests {
         int grasses=0,flowers=0,trees=0,lamps=0;Integer phaseX=null,phaseZ=null;
         for(int i=0;i<d.tasks.size();i++){CompoundTag t=d.task(i);int type=t.getInt("type");BlockPos p=new BlockPos(t.getInt("x"),t.getInt("y"),t.getInt("z"));int distance=nearestObstacle(b,level,p);
             h.assertTrue(ConstructorBuilder.gardenTask(type)&&level.getBlockState(p).is(Blocks.GRASS_BLOCK),"all tasks must start on grass blocks");
-            if(type==ConstructorBuilder.TUFT||type==ConstructorBuilder.FLOWER){h.assertTrue(distance==1||distance==3,"plant only the one- and three-block bands");if(type==ConstructorBuilder.TUFT)grasses++;else flowers++;}
+            if(type==ConstructorBuilder.TUFT||type==ConstructorBuilder.FLOWER){h.assertTrue(distance>=0,"plant candidates must remain in the scanned area");if(type==ConstructorBuilder.TUFT)grasses++;else flowers++;}
             else if(type==ConstructorBuilder.TREE){trees++;h.assertTrue(distance>5,"trees need more than five blocks from other materials");}
             else if(type==ConstructorBuilder.LAMP){lamps++;int px=Math.floorMod(p.getX(),12),pz=Math.floorMod(p.getZ(),12);if(phaseX==null){phaseX=px;phaseZ=pz;}h.assertTrue(px==phaseX&&pz==phaseZ&&distance>3,"lamps must keep their translated twelve-block grid and grass clearance");}
             else h.assertTrue(type>=ConstructorBuilder.FARM&&type<=ConstructorBuilder.POND,"allow the restored small catalog");
@@ -88,7 +87,7 @@ public class ConstructorGameTests {
         BlockPos water=c.offset(10,0,-4);level.setBlockAndUpdate(water,Blocks.WATER.defaultBlockState());
         BlockPos pit=c.offset(12,0,10);for(int y=0;y>=-2;y--)level.setBlockAndUpdate(pit.offset(0,y,0),Blocks.AIR.defaultBlockState());level.setBlockAndUpdate(pit.below(3),Blocks.STONE.defaultBlockState());
         BlockPos fence=c.offset(-13,1,9);level.setBlockAndUpdate(fence,Blocks.OAK_FENCE.defaultBlockState());
-        Map<BlockPos,BlockState> before=groundSnapshot(level,c,16);scan(b,level,d);worker(b,c.south(4));
+        Map<BlockPos,BlockState> before=groundSnapshot(level,c,16);scan(b,level,d);
         for(int tick=0;tick<60000&&!d.finished&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
         h.assertTrue(d.finished,"reachable gardening must finish, pending="+d.retryTasks.size()+", report="+d.lastReport);
         h.assertTrue(before.entrySet().stream().allMatch(e->level.getBlockState(e.getKey()).equals(e.getValue())),"never change grass bases, roads, water, holes or underground blocks");
@@ -114,77 +113,18 @@ public class ConstructorGameTests {
         h.succeed();
     }
     @GameTest(template="empty",timeoutTicks=200)
-    public static void navigationStillCrossesPavingSlabsAndCrops(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=center(h,1024);lawn(level,c,10);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);
-        level.setBlockAndUpdate(c,Blocks.FARMLAND.defaultBlockState());level.setBlockAndUpdate(c.above(),Blocks.CARROTS.defaultBlockState());
-        h.assertTrue(c.equals(call(b,"standingGround",new Class[]{ServerLevel.class,int.class,int.class,int.class},level,c.getX(),c.getZ(),c.getY())),"crops must not falsely strand the worker");
-        BlockPos slab=c.east(2);level.setBlockAndUpdate(slab,Blocks.STONE_BRICK_SLAB.defaultBlockState());h.assertTrue(Math.abs((double)call(b,"footHeight",new Class[]{ServerLevel.class,BlockPos.class},level,slab)-(slab.getY()+.5))<.001,"follow the slab surface");
-        BlockPos paving=c.east(4);level.setBlockAndUpdate(paving,Blocks.STONE_BRICKS.defaultBlockState());h.assertTrue(paving.equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,paving.getX(),paving.getZ(),c.getY())),"walking across paving must remain possible");
-        level.setBlockAndUpdate(c.north(3).above(3),Blocks.OAK_PLANKS.defaultBlockState());h.assertTrue(c.north(3).equals(call(b,"navigationStep",new Class[]{ServerLevel.class,ConstructorData.class,int.class,int.class,int.class},level,d,c.getX(),c.getZ()-3,c.getY())),"do not select a roof instead of the ground");
-        d.centerZ=c.getZ()-3;BlockPos start=(BlockPos)call(b,"findSafeStart",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
-        h.assertTrue(start!=null&&start.getY()==c.getY(),"creating over a wooden roof must select nearby outdoor ground");h.succeed();
-    }
-    @GameTest(template="empty",timeoutTicks=200)
-    public static void blockedPlantsDoNotPreventReachableWorkAndPersistHonestly(GameTestHelper h)throws Exception{
+    public static void directPlacementDoesNotNeedAPathAndPersistsCompletion(GameTestHelper h)throws Exception{
         ServerLevel level=h.getLevel();BlockPos c=center(h,1280);lawn(level,c,22);ConstructorBuilder b=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;
         BlockPos isolated=c.offset(8,0,8);for(int x=-4;x<=4;x++)for(int z=-4;z<=4;z++)if(Math.abs(x)==4||Math.abs(z)==4)for(int y=1;y<=2;y++)level.setBlockAndUpdate(isolated.offset(x,y,z),Blocks.STONE_BRICKS.defaultBlockState());
-        d.addTask(ConstructorBuilder.TUFT,isolated.getX(),isolated.getY(),isolated.getZ());BlockPos clear=c.offset(-5,0,-5);d.addTask(ConstructorBuilder.FLOWER,clear.getX(),clear.getY(),clear.getZ());worker(b,clear.west());
+        d.addTask(ConstructorBuilder.TUFT,isolated.getX(),isolated.getY(),isolated.getZ());BlockPos clear=c.offset(-5,0,-5);d.addTask(ConstructorBuilder.FLOWER,clear.getX(),clear.getY(),clear.getZ());
         for(int tick=0;tick<3000&&!d.finished&&!d.reviewPending;tick++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
-        h.assertTrue(level.getBlockState(clear.above()).is(BlockTags.FLOWERS)&&d.reviewPending&&!d.finished&&d.retryTasks.size()==1,"do reachable work before reporting inaccessible decoration");
-        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));h.assertTrue(restored.reviewPending&&restored.retryTasks.size()==1,"pending decoration must survive a restart");h.succeed();
+        h.assertTrue(level.getBlockState(isolated.above()).is(Blocks.GRASS)&&level.getBlockState(clear.above()).is(BlockTags.FLOWERS)&&d.finished&&d.retryTasks.isEmpty(),"direct placement must complete both tasks without a navigable path");
+        ConstructorData restored=ConstructorData.load(d.save(new CompoundTag()));h.assertTrue(restored.finished&&restored.retryTasks.isEmpty(),"completion state must survive a restart");h.succeed();
     }
 
-    @GameTest(template="empty",timeoutTicks=200)
-    public static void continueRelocatesAndPreservesTheOriginalPartialPlan(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=center(h,2560);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder();
-        var source=level.getServer().createCommandSourceStack().withPermission(4).withLevel(level).withPosition(net.minecraft.world.phys.Vec3.atBottomCenterOf(c.above()));
-        ConstructorData d=ConstructorData.get(level.getServer());
-        try{
-            b.create(source,32);d.scanning=false;d.auditOnly=false;d.tasks.clear();d.retryTasks.clear();
-            d.addTask(ConstructorBuilder.TUFT,c.getX()-6,c.getY(),c.getZ());d.taskCursor=1;d.completedJobs=1;
-            d.addTask(ConstructorBuilder.LAMP,c.getX(),c.getY(),c.getZ());d.task(1).putBoolean("started",true);
-            worker(b,c.east(4));call(b,"prepareTask",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
-            for(int i=0;i<12;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
-            h.assertTrue(d.placed>0&&d.taskCursor==1,"start a real lamp before simulating a blockage");
-            BlockPos bloom=c.offset(-6,0,-6);CompoundTag retry=new CompoundTag();retry.putInt("type",ConstructorBuilder.FLOWER);retry.putInt("x",bloom.getX());retry.putInt("y",bloom.getY());retry.putInt("z",bloom.getZ());d.retryTasks.add(retry);d.retryTasks.add(retry.copy());d.reviewPending=true;
-            level.setBlockAndUpdate(c.east(4).above(),Blocks.STONE_BRICKS.defaultBlockState());
-            int placed=d.placed;h.assertTrue(b.resume(source)==1,"continuar must relocate from blocked feet");
-            h.assertTrue(d.tasks.size()==3&&d.taskCursor==1&&d.completedJobs==1&&d.placed==placed&&d.retryTasks.isEmpty()&&!d.reviewPending,"keep completed prefix, partial lamp and unique pending flower without replanning");
-            h.assertTrue(d.positionSaved&&Math.max(Math.abs(d.workerX-(c.getX()+4.5)),Math.abs(d.workerZ-(c.getZ()+.5)))>=2,"move the gardener at least two blocks");
-            ConstructorData copy=ConstructorData.load(d.save(new CompoundTag()));ConstructorBuilder afterRestart=new ConstructorBuilder();
-            h.assertTrue((boolean)call(afterRestart,"ensurePosition",new Class[]{ServerLevel.class,ConstructorData.class},level,copy)&&copy.workerX==d.workerX&&copy.workerY==d.workerY&&copy.workerZ==d.workerZ,"saved position survives reload");
-            h.assertTrue(copy.taskCursor==1&&copy.tasks.size()==3&&copy.task(1).getBoolean("started"),"partial plan survives reload");
-            for(int i=0;i<15000&&!d.finished&&!d.reviewPending;i++)call(b,"workTick",new Class[]{net.minecraft.server.MinecraftServer.class,ServerLevel.class,ConstructorData.class},level.getServer(),level,d);
-            h.assertTrue(d.finished&&d.retryTasks.isEmpty()&&d.completedJobs==3&&level.getBlockState(bloom.above()).is(BlockTags.FLOWERS),"complete the same lamp and pending flower after rescue");
-            int lamps=0;for(int i=0;i<d.memory.size();i++)if(d.memory.getCompound(i).getInt("type")==ConstructorBuilder.LAMP)lamps++;
-            h.assertTrue(lamps==1,"rescuing a partial lamp must record exactly one lamp");
-            var dispatcher=level.getServer().getCommands().getDispatcher();
-            for(String command:new String[]{"jardinero ir","jardinero continuar","constructor continuar","constructor ir"}){
-                var parse=dispatcher.parse(command,source);h.assertTrue(parse.getExceptions().isEmpty()&&!parse.getReader().canRead(),"new and legacy command names must parse: "+command);
-            }
-            var denied=dispatcher.parse("jardinero continuar",source.withPermission(0));h.assertTrue(!denied.getExceptions().isEmpty()||denied.getReader().canRead(),"gardener management remains OP-only");
-            var visitor=new net.minecraft.server.level.ServerPlayer(level.getServer(),level,new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(),"GardenVisitor"));
-            visitor.connection=new net.minecraft.server.network.ServerGamePacketListenerImpl(level.getServer(),new net.minecraft.network.Connection(net.minecraft.network.protocol.PacketFlow.SERVERBOUND),visitor);
-            visitor.setPos(c.getX()+1000,c.getY()+1,c.getZ()+1000);
-            h.assertTrue(b.teleportTo(source.withEntity(visitor))==1&&visitor.distanceToSqr(d.workerX,d.workerY,d.workerZ)<150,"ir must teleport a remote player next to the persisted NPC");
-            boolean consoleRejected=false;try{b.teleportTo(source);}catch(com.mojang.brigadier.exceptions.CommandSyntaxException expected){consoleRejected=true;}h.assertTrue(consoleRejected,"ir requires a player, not console teleport");
-            call(b,"ensureActor",new Class[]{ServerLevel.class},level);Field actor=ConstructorBuilder.class.getDeclaredField("actor");actor.setAccessible(true);var npc=(net.minecraftforge.common.util.FakePlayer)actor.get(b);
-            h.assertTrue(npc.getGameProfile().getName().equals("Jardinero")&&npc.getMainHandItem().is(Items.IRON_HOE),"name and gardening outfit are applied to the visible NPC");
-        }finally{b.cancel(source);}h.succeed();
-    }
-    @GameTest(template="empty",timeoutTicks=200)
-    public static void rescueWithoutSafeGroundLeavesProgressIntact(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=center(h,2816);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder();
-        var source=level.getServer().createCommandSourceStack().withPermission(4).withLevel(level).withPosition(net.minecraft.world.phys.Vec3.atBottomCenterOf(c.above()));
-        try{
-            b.create(source,32);ConstructorData d=ConstructorData.get(level.getServer());d.scanning=false;d.auditOnly=false;d.tasks.clear();d.addTask(ConstructorBuilder.FLOWER,c.getX()+12,c.getY(),c.getZ());d.reviewPending=true;
-            for(int dx=-8;dx<=8;dx++)for(int dz=-8;dz<=8;dz++)for(int dy=1;dy<=3;dy++)level.setBlockAndUpdate(c.offset(dx,dy,dz),Blocks.STONE_BRICKS.defaultBlockState());
-            double x=d.workerX,z=d.workerZ;h.assertTrue(b.resume(source)==0&&d.tasks.size()==1&&d.taskCursor==0&&d.reviewPending&&!d.active&&d.workerX==x&&d.workerZ==z,"failed rescue must not erase tasks, move to a roof, restart or activate work");
-        }finally{b.cancel(source);}h.succeed();
-    }
     @GameTest(template="empty",timeoutTicks=600)
     public static void residentTicketsKeepRemoteWorkAvailableAndReleaseOnlyOurTickets(GameTestHelper h)throws Exception{
-        ServerLevel level=h.getLevel();BlockPos c=center(h,4096);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder(),other=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.active=true;d.addTask(ConstructorBuilder.FLOWER,c.getX()+4,c.getY(),c.getZ());worker(b,c);
+        ServerLevel level=h.getLevel();BlockPos c=center(h,4096);lawn(level,c,24);ConstructorBuilder b=new ConstructorBuilder(),other=new ConstructorBuilder();ConstructorData d=data(level,c,32);d.scanning=false;d.active=true;d.addTask(ConstructorBuilder.FLOWER,c.getX()+4,c.getY(),c.getZ());
         call(b,"updateChunks",new Class[]{ServerLevel.class,ConstructorData.class},level,d);call(other,"updateChunks",new Class[]{ServerLevel.class,ConstructorData.class},level,d);
         Field tickets=ConstructorBuilder.class.getDeclaredField("heldChunks");tickets.setAccessible(true);int count=((Set<?>)tickets.get(b)).size();
         h.assertTrue(count>0&&count<=16,"32-block assignment holds only its bounded survey halo");

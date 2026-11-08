@@ -1,5 +1,5 @@
 plugins { id 'net.minecraftforge.gradle' version '6.0.54' }
-version='0.5.2-jardinero-test22'
+version='0.5.5-constructor-0.3.18-test1'
 group='net.barttolo'
 base { archivesName='Barttolo-Bots-Forge-1.20.1' }
 java.toolchain.languageVersion=JavaLanguageVersion.of(17)
@@ -16,6 +16,6 @@ minecraft {
 }
 repositories { mavenCentral() }
 dependencies { minecraft 'net.minecraftforge:forge:1.20.1-47.4.10' }
-tasks.named('jar',Jar).configure { finalizedBy 'reobfJar'; exclude 'net/barttolo/bots/HostGameTests*'; exclude 'net/barttolo/bots/ConstructorGameTests*' }
+tasks.named('jar',Jar).configure { finalizedBy 'reobfJar'; exclude 'net/barttolo/bots/HostGameTests*'; exclude 'net/barttolo/bots/ConstructorGameTests*'; exclude 'net/barttolo/bots/RoadGameTests*'; exclude 'net/barttolo/bots/AdaptiveRoadGameTests*' }
 tasks.withType(JavaCompile).configureEach { options.encoding='UTF-8' }
 tasks.withType(JavaExec).configureEach { if (name == 'runServer') standardInput = System.in }

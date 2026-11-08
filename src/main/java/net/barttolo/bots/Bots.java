@@ -32,6 +32,7 @@ public final class Bots {
     public static Guide guide=Guide.defaults();
     public static final HostVisual visual=new HostVisual();
     public static final ConstructorBuilder constructor=new ConstructorBuilder();
+    public static final RoadConstructor roads=new RoadConstructor();
     private static final Map<UUID,Integer> welcomeAt=new HashMap<>(),replyAt=new HashMap<>();
     public Bots(){
         // An optional channel with no payloads explicitly permits clients without this mod.
@@ -39,27 +40,30 @@ public final class Bots {
             version->true,version->true);
         MinecraftForge.EVENT_BUS.register(this);
     }
+    @SubscribeEvent public void roadWorkerJoin(net.minecraftforge.event.entity.EntityJoinLevelEvent e){
+        if(!e.getLevel().isClientSide()&&roads.staleWorker(e.getEntity()))e.setCanceled(true);
+    }
     @SubscribeEvent public void started(ServerStartedEvent e){
         welcomeAt.clear();replyAt.clear();
         try{guide=GuideConfig.load();}catch(Exception ex){guide=Guide.defaults();LOG.error("No se pudo cargar la guía; se usan valores de referencia. No se sobrescribió el archivo.",ex);}
         HostData.get(e.getServer());
         ConstructorData.get(e.getServer());
     }
-    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());welcomeAt.clear();replyAt.clear();}
+    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());roads.shutdown();welcomeAt.clear();replyAt.clear();}
     @SubscribeEvent public void login(PlayerEvent.PlayerLoggedInEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!(p instanceof FakePlayer)){
-            visual.forget(p.getUUID());constructor.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
+            visual.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
         }
     }
     @SubscribeEvent public void logout(PlayerEvent.PlayerLoggedOutEvent e){
-        UUID id=e.getEntity().getUUID();visual.forget(id);constructor.forget(id);welcomeAt.remove(id);replyAt.remove(id);
+        UUID id=e.getEntity().getUUID();visual.forget(id);welcomeAt.remove(id);replyAt.remove(id);
     }
-    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
-    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());}
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent e){
         if(e.phase!=TickEvent.Phase.END)return;
         MinecraftServer s=e.getServer();int now=s.getTickCount();
-        constructor.tick(s);
+        constructor.tick(s);roads.tick(s);
         if(now%20!=0)return;
         HostData d=HostData.get(s);
         visual.sync(s,d,guide);
@@ -120,6 +124,7 @@ public final class Bots {
     }
     @SubscribeEvent public void commands(RegisterCommandsEvent e){
         var dispatcher=e.getDispatcher();
+        roads.register(dispatcher);
         dispatcher.register(Commands.literal("asistente")
             .executes(ctx->{menu(ctx.getSource().getPlayerOrException());return 1;})
             .then(Commands.argument("pregunta",StringArgumentType.greedyString())
@@ -145,9 +150,7 @@ public final class Bots {
                 .executes(ctx->constructor.create(ctx.getSource(),64))
                 .then(Commands.argument("ancho",IntegerArgumentType.integer(32,256))
                     .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
-            .then(Commands.literal("ir").executes(ctx->constructor.teleportTo(ctx.getSource())))
             .then(Commands.literal("continuar").executes(ctx->constructor.resume(ctx.getSource())))
-            .then(Commands.literal("piel").then(Commands.argument("jugador",EntityArgument.player()).executes(ctx->constructor.skin(ctx.getSource(),EntityArgument.getPlayer(ctx,"jugador")))))
             .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
             .then(Commands.literal("pausar").executes(ctx->constructor.pause(ctx.getSource())))
             .then(Commands.literal("auditar").executes(ctx->constructor.audit(ctx.getSource())))
