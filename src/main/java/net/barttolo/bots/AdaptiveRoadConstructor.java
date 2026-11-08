@@ -582,7 +582,7 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
     }
     boolean safeChange(ServerLevel l,BlockPos p,BlockState before,BlockState after){
         if(l.getBlockEntity(p)!=null||!l.getWorldBorder().isWithinBounds(p))return false;
-        if(!after.isAir()&&(liquidTerrain(before)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.WATER)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.LAVA)))return editable(l,p);
+        if(liquidTerrain(before)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.WATER)||l.getFluidState(p).is(net.minecraft.tags.FluidTags.LAVA))return editable(l,p);
         return editable(l,p)&&l.getFluidState(p).isEmpty();
     }
     BlockState read(ServerLevel l,CompoundTag t,String key){return NbtUtils.readBlockState(l.holderLookup(Registries.BLOCK),t.getCompound(key));}
