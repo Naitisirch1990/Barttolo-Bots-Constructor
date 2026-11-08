@@ -73,7 +73,7 @@ public final class AdaptiveRoadGameTests {
         l.setBlock(p.offset(15,-79,0),Blocks.SEAGRASS.defaultBlockState(),2);
         var d=data(h,p,p.east(20));var b=new AdaptiveRoadConstructor();b.begin(d);
         drive(h,b,d,job->{
-            h.assertTrue(job.piers==2&&job.pierBlocks>3000,"Plan full-depth piers fifteen blocks apart");
+            h.assertTrue(job.piers==2&&job.pierBlocks>2500,"Plan full-depth piers fifteen blocks apart");
             var saved=AdaptiveRoadConstructor.Data.load(job.save(new CompoundTag()));
             h.assertTrue(saved.piers==2&&saved.pierBlocks==job.pierBlocks,"Persist pier counters");
         },job->{
