@@ -350,6 +350,12 @@ public final class AdaptiveRoadGameTests {
     public static void tunnelHasFiveByFiveClearanceAndProtectedChestIsRejected(GameTestHelper h){
         BlockPos p=ground(h,5256);var l=h.getLevel();
         for(int x=2;x<=6;x++)for(int z=-3;z<=3;z++)for(int y=0;y<=7;y++)l.setBlockAndUpdate(p.offset(x,y,z),Blocks.STONE.defaultBlockState());
+        // Exercise water and lava inside the corridor, across one side, and in the roof.
+        for(int x=2;x<=6;x++){
+            l.setBlockAndUpdate(p.offset(x,2,0),(x%2==0?Blocks.WATER:Blocks.LAVA).defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,5,0),(x%2==0?Blocks.LAVA:Blocks.WATER).defaultBlockState());
+            l.setBlockAndUpdate(p.offset(x,2,3),Blocks.LAVA.defaultBlockState());
+        }
         var d=data(h,p,p.east(8));var b=new AdaptiveRoadConstructor();b.begin(d);
 
         l.setBlockAndUpdate(p.offset(12,0,0),Blocks.CHEST.defaultBlockState());
@@ -359,7 +365,9 @@ public final class AdaptiveRoadGameTests {
         h.assertTrue(b.survey(l,p.east(18))!=null,"A deck may span leaves or air without a foundation");
         drive(h,b,d,job->h.assertTrue(job.tunnels>=5&&job.cut>=125&&job.piers==0,"Count tunnel sections without adding piers"),job->{
             for(int x=2;x<=6;x++)for(int z=-2;z<=2;z++)for(int y=0;y<5;y++)h.assertTrue(l.getBlockState(p.offset(x,y,z)).isAir(),"Tunnel must have five-wide five-high air clearance");
-            h.assertTrue(l.getBlockState(p.offset(4,5,0)).is(Blocks.STONE),"Keep the tunnel roof");
+            h.assertTrue(l.getBlockState(p.offset(4,5,0)).isSolid()&&l.getFluidState(p.offset(4,5,0)).isEmpty(),"Seal a water/lava roof with masonry");
+            h.assertTrue(l.getBlockState(p.offset(4,2,3)).isSolid()&&l.getFluidState(p.offset(4,2,3)).isEmpty(),"Build a side wall between the tunnel and lava");
+            h.assertTrue(l.getBlockState(p.offset(4,2,0)).isAir()&&l.getFluidState(p.offset(4,2,0)).isEmpty(),"Remove water/lava from the five-high interior");
         });
     }
     @GameTest(template="empty",timeoutTicks=1600)
