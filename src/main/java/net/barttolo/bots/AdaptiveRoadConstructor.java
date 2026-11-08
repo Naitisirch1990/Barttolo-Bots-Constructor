@@ -465,8 +465,11 @@ d.report="Ruta encontrada: "+sections+" secciones. Calculando excavaciones y mat
                     0,
                     sideZ*side*4+Integer.signum((int)Math.round(dz))*along);
             Direction facing=side>0?towardCenter:towardCenter.getOpposite();
-            if(!safeChange(l,bracketPos,l.getBlockState(bracketPos),bracket))continue;
-            if(!put(bracketPos,bracket.setValue(StairBlock.FACING,facing))){halt(s,d,"El remate del pilar supera el límite del plan.");return false;}
+            BlockState stair=bracket.setValue(StairBlock.FACING,facing);
+            BlockState existing=recipe.get(bracketPos);
+            if(existing!=null&&!matches(existing,stair))continue;
+            if(existing==null&&!safeChange(l,bracketPos,l.getBlockState(bracketPos),stair))continue;
+            if(!put(bracketPos,stair)){halt(s,d,"El remate del pilar supera el límite del plan.");return false;}
             added++;
         }
         if(added>0){d.piers++;d.pierBlocks+=added;}

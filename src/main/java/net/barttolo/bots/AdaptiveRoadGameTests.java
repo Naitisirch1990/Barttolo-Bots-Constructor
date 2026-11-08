@@ -260,7 +260,7 @@ public final class AdaptiveRoadGameTests {
             int pairCount=0;
             for(int i=0;i<job.lamps.size();i++){
                 BlockPos lamp=BlockPos.of(job.lamps.getCompound(i).getLong("pos"));
-                h.assertTrue(lamp.getX()+lamp.getZ()==p.getX()+p.getZ()&&lamp.getY()==p.getY()-1,"Paired floor lights stay level and symmetric across the diagonal");
+                h.assertTrue(lamp.getX()+lamp.getZ()==p.getX()+p.getZ()&&lamp.getY()==p.getY()-1,"Paired floor lights stay level and symmetric across the diagonal: lamp="+lamp+" start="+p);
                 h.assertTrue(Math.abs((lamp.getX()-p.getX())-(lamp.getZ()-p.getZ()))==2,"Lights sit one block to either side of the centerline");pairCount++;
             }
             h.assertTrue(pairCount==job.lights,"Every recorded floor light is part of a symmetric pair");
