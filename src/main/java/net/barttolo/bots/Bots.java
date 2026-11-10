@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.network.chat.*;
 import net.minecraft.ChatFormatting;
 import net.minecraft.server.MinecraftServer;
