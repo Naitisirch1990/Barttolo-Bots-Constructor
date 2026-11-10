@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.arguments.StringArgumentType;
