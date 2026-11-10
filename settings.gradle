@@ -1,2 +1,8 @@
-pluginManagement { repositories { gradlePluginPortal(); maven { url = 'https://maven.minecraftforge.net/' } } }
-rootProject.name = 'barttolo-bots'
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net/' }
+    }
+}
+rootProject.name = 'barttolo-bots-split'
+include 'ayudante'

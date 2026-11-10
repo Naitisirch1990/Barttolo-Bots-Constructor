@@ -1,10 +1,25 @@
-# Barttolo Jardinero 0.5.1 / test21
+# Barttolo Asistente + Ayudante
 
-- Farolas cada 12 bloques. La inspección prueba las 144 alineaciones posibles y elige la cuadrícula de 12 con más sitios válidos, también en parcelas pequeñas. Omite posiciones junto a caminos o construcciones.
-- Árboles en una cuadrícula de aproximadamente 12 bloques, sin el filtro aleatorio que podía dejar áreas pequeñas sin árboles. Conserva la separación de edificios/caminos y deja espacio para las copas y las farolas propias.
-- Recupera cultivos, plazoletas pequeñas, bancos/jardineras, pérgolas, pozos decorativos, puestos, merenderos y estanques. Solo propone los que caben en césped plano y libre. Reserva su espacio antes de plantar y ajusta las farolas para evitar colisiones.
-- Cultivos y construcciones usan plataformas elevadas con acceso, sin excavar ni reemplazar el suelo existente. El agua se coloca después de cerrar el recipiente y las plantas acuáticas/cultivos al final.
-- Mantiene las franjas de pasto y flores a 1 y 3 bloques y el máximo de 256×256. No rellena barrancos ni pozos, no repara caminos, no añade vallados perimetrales y no toca cofres existentes.
-- La tierra que aparece naturalmente bajo una base propia no bloquea la continuación de una construcción iniciada. No permite usar tierra desnuda para una construcción nueva.
+Forge 1.20.1, Forge 47.4.10, Java 17. Server side.
 
-Reemplazar el JAR anterior y reiniciar. Desde el centro deseado: `/constructor crear 32` (o 40, 48, 64, 128, 256) y `/constructor iniciar`. Las construcciones ya colocadas permanecen. Las asignaciones anteriores se pausan y se vuelven a inspeccionar al actualizar.
+## Separate mods
+
+- **Barttolo Asistente** (`barttolobots`): spawn welcome NPC and clickable `/asistente` help menu. Keeps the previous assistant mod ID and SavedData key so welcome history, NPC placement, and the existing guide config remain in place.
+- **Barttolo Ayudante** (`barttoloayudante`): gardener/construction worker and its persistent work plan. Keeps the previous constructor SavedData key and gardening schema.
+
+Remove the old combined `Barttolo-Bots-Forge` JAR before installing both new JARs. Do not leave the old and split versions installed together.
+
+## Help topics
+
+The Asistente adds a clickable `[AYUDA]` to every welcome and return welcome. It opens clickable topics for Eventos, Asaltos, Misiones, Invasiones, Reliquias, RingWorld, Economía, and Premios (R-Coin) en el shop. Topics are also available through `/asistente <tema>`.
+
+## Jardinero / Constructor
+
+Both `/constructor` and `/jardinero` expose the same functions. To set an area and begin autonomously:
+
+1. Stand at one corner and run `/constructor puntoA`.
+2. Stand at the opposite corner and run `/constructor puntoB`.
+
+Punto B starts the full inspection and automatically begins the work once inspection is done. The work area is a square that contains both points, with a minimum side of 32 and maximum of 256 blocks. The area is not terrain-leveled, fenced, or filled. Existing commands such as `/constructor crear 64`, `/constructor estado`, `/constructor ir`, `/constructor continuar`, `/constructor pausar`, and `/constructor cancelar` remain available.
+
+The bot runs on server ticks and holds its own non-entity-ticking chunk tickets while working; the player does not need to stay nearby. The plan and placement memory are stored in world SavedData.

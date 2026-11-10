@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import com.mojang.authlib.GameProfile;
 import io.netty.buffer.Unpooled;

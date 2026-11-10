@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import java.text.Normalizer;
 import java.util.*;
@@ -9,8 +9,8 @@ public final class Guide {
     public String name="Asistente";
     public int chatRadius=32, visualRadius=64, cooldownSeconds=3, welcomeDelaySeconds=3;
     public boolean showInTab=true;
-    public String firstWelcome="¡Bienvenido a RingWorld, {jugador}! Soy {bot}, el ayudante automático del spawn. Este mundo combina supervivencia, armas, misiones y eventos.";
-    public String returnWelcome="¡Hola de nuevo, {jugador}! Soy {bot}, el bot del spawn. Si necesitás orientación, escribí /asistente.";
+    public String firstWelcome="¡Bienvenido a RingWorld, {jugador}! Soy {bot}, el asistente del spawn.";
+    public String returnWelcome="¡Hola de nuevo, {jugador}! Soy {bot}, el asistente del spawn.";
     public Map<String,Topic> topics=new LinkedHashMap<>();
     public static final class Topic {
         public List<String> aliases=new ArrayList<>();
@@ -19,26 +19,35 @@ public final class Guide {
         Topic(String text,String... words){answer=text;aliases=List.of(words);}
     }
     public static Guide defaults(){
-        Guide g=new Guide();g.schemaVersion=2;
-        g.topics.put("inicio",new Topic("RingWorld es un mundo en forma de anillo: supervivencia con mods, armas, misiones y eventos. Podés explorar, construir y jugar con otros. Temas: misiones, eventos, monedas, reglas, Discord y ayuda.","inicio","tematica","servidor","ringworld","de que trata","como jugar"));
-        g.topics.put("misiones",new Topic("Las misiones son desafíos de combate con oleadas de enemigos y progresión por sectores del anillo. Prepará equipo y munición antes de entrar. Consultá los requisitos en el acceso de cada misión; para orientación escribí /asistente ayuda.","misiones","mision","oleadas","hangar"));
-        g.topics.put("eventos",new Topic("Cada semana realizamos un evento con una temática distinta. Explorá, participá y conseguí B-Coins para canjear por recompensas. Las novedades se anuncian dentro del servidor y en Discord. ¡Descubrí las sorpresas jugando!","eventos","evento","semanal","semanales"));
-        g.topics.put("monedas",new Topic("La moneda del servidor es B-Coin. Los eventos son una forma de conseguirla; podés canjearla por recompensas en la tienda o el casino. Mirá los precios actuales dentro del juego. No entrego monedas ni premios.","monedas","moneda","b coin","bcoin","b coins","bcoins","recompensas","tienda","casino","premios"));
-        g.topics.put("armas",new Topic("El servidor usa armas de TACZ. Buscá sus recetas y las de munición en JEI: el crafteo forma parte de la progresión. Prepará equipo antes de las misiones.","armas","arma","tacz","municion","balas","crafteo","jei"));
+        Guide g=new Guide();g.schemaVersion=3;
+        g.topics.put("inicio",new Topic("RingWorld es un mundo de supervivencia con forma de anillo. Explora, construye y participa en actividades del servidor. Pulsa /asistente para abrir los temas.","inicio","tematica","servidor","ringworld","de que trata","como jugar"));
+        g.topics.put("misiones",new Topic("La campaña tiene misiones por dimensiones y desafíos con oleadas y jefes. Consulta los requisitos en cada acceso; las recompensas únicas se registran por jugador.","misiones","mision","oleadas","hangar","campana"));
+        g.topics.put("eventos",new Topic("Los eventos ofrecen actividades especiales y recompensas. Revisa los anuncios del servidor y Discord para conocer el evento activo.","eventos","evento","semanal","semanales"));
+        g.topics.put("asaltos",new Topic("Los asaltos son combates contra jefes en arenas distribuidas por RingWorld. Acércate al punto anunciado y participa con otros jugadores.","asaltos","asalto","jefes","arena","arenas"));
+        g.topics.put("invasiones",new Topic("Las invasiones son encuentros de enemigos temáticos que pueden aparecer en el mundo. Mantente alerta y ayuda a defender la zona.","invasiones","invasion","invasores"));
+        g.topics.put("reliquias",new Topic("Hay 5 tipos de reliquias. Se obtienen como recompensas únicas de misiones y de algunos jefes, asaltos o eventos especiales. No se compran con R-Coin.","reliquias","reliquia","cuantas reliquias"));
+        g.topics.put("ringworld",new Topic("RingWorld es el mundo principal, construido como un anillo. Explora sus aldeas, regiones y puntos de interés; el Nether y el End tienen sus propias aventuras.","ringworld","anillo","mundo principal"));
+        g.topics.put("economia",new Topic("R-Coin es la moneda del servidor. Puedes obtenerla mediante actividades y recompensas; consulta tu saldo y las opciones disponibles dentro del juego.","economia","economía","monedas","moneda","r coin","rcoin","saldo"));
+        g.topics.put("premios",new Topic("En el shop puedes canjear R-Coin por los premios disponibles. Los precios y el catálogo se consultan dentro del juego. Las reliquias se consiguen jugando y no se venden.","premios","shop","tienda","casino","recompensas","comprar"));
+        g.topics.put("armas",new Topic("Prepara tu equipo antes de salir a explorar o entrar en una misión. Consulta las recetas disponibles en JEI.","armas","arma","equipo","crafteo","jei"));
         g.topics.put("reglas",new Topic("Cuidemos una comunidad justa: está prohibido robar, matar a otros jugadores, acosar o discriminar y dañar construcciones ajenas. No se permiten hacks, Xray, clientes modificados para hacer trampas, duplicación de objetos, abuso de errores ni herramientas o métodos que den ventajas injustas o perjudiquen la jugabilidad. Si encontrás un fallo, avisá a la administración y no lo aproveches.","reglas","normas","robar","pvp","hacks","hack","xray","trampas","duplicacion"));
         g.topics.put("discord",new Topic("Comunidad y ayuda de RingWorld: https://discord.gg/xBWHDmKwc", "discord","dc","comunidad","enlace"));
-        g.topics.put("saludo",new Topic("¡Hola, {jugador}! Soy {bot}, el ayudante automático del spawn. Puedo orientarte sobre misiones, eventos, monedas y reglas. Escribí /asistente para ver los temas.","hola","buenas","buenos dias","saludos"));
+        g.topics.put("saludo",new Topic("¡Hola, {jugador}! Soy {bot}, el asistente del spawn. Pulsa [AYUDA] o escribe /asistente para ver los temas.","hola","buenas","buenos dias","saludos"));
         g.topics.put("identidad",new Topic("Soy {bot}, un bot de ayuda de RingWorld. Tengo respuestas programadas: no soy una persona ni una IA de conversación libre. Mi tarea es darte la bienvenida y orientarte.","quien eres","quien sos","eres un bot","sos un bot","que haces","que estas haciendo"));
-        g.topics.put("ayuda",new Topic("Usá /asistente misiones, /asistente eventos, /asistente monedas, /asistente reglas o /asistente discord. También podés mencionarme como Asistente cerca del spawn. Si tu duda no está cubierta, pedí ayuda en Discord.","ayuda","ayudame","comandos","no entiendo"));
+        g.topics.put("ayuda",new Topic("Pulsa [AYUDA] en el mensaje de bienvenida o escribe /asistente para abrir los temas. También puedes preguntarme en el chat cerca del spawn.","ayuda","ayudame","comandos","no entiendo"));
         return g;
     }
     public boolean migrate(){
-        if(schemaVersion>=2)return false;
+        if(schemaVersion>=3)return false;
         Guide next=defaults();
         if(topics==null)topics=new LinkedHashMap<>();
         topics.remove("tiempos");
-        for(String key:List.of("inicio","eventos","reglas","discord","ayuda"))topics.put(key,next.topics.get(key));
-        name="Asistente";schemaVersion=2;return true;
+        for(String key:next.topics.keySet())topics.putIfAbsent(key,next.topics.get(key));
+        Topic oldCoins=topics.get("monedas");
+        if(oldCoins!=null&&oldCoins.answer.toLowerCase(Locale.ROOT).contains("b-coin"))topics.put("monedas",next.topics.get("economia"));
+        Topic oldEvents=topics.get("eventos");
+        if(oldEvents!=null&&oldEvents.answer.toLowerCase(Locale.ROOT).contains("b-coin"))topics.put("eventos",next.topics.get("eventos"));
+        name="Asistente";schemaVersion=3;return true;
     }
     public static String normalize(String input){
         return Normalizer.normalize(input,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9 ]"," ").replaceAll("\\s+"," ").trim();

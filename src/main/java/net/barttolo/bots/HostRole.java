@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 public final class HostRole implements BotRole {
     private final Guide guide;

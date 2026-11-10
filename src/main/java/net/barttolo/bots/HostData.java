@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
