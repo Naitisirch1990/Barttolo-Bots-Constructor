@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import java.text.Normalizer;
 import java.util.*;
