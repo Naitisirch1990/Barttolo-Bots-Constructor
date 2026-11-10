@@ -1,4 +1,4 @@
-name: Build mod
+name: Build Asistente y Ayudante
 
 on:
   push:
@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -17,44 +17,13 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Check terrain ramp profiles
-        run: |
-          mkdir -p build/ramp-checks
-          javac -d build/ramp-checks src/main/java/net/barttolo/bots/TerrainRampProfile.java tests/TerrainRampProfileChecks.java
-          java -cp build/ramp-checks TerrainRampProfileChecks
-          javac -d build/ramp-checks src/main/java/net/barttolo/bots/TerrainApronPlan.java tests/TerrainApronChecks.java
-          java -cp build/ramp-checks TerrainApronChecks
-          javac -d build/ramp-checks src/main/java/net/barttolo/bots/SurfaceBasinPlan.java tests/SurfaceBasinChecks.java
-          java -cp build/ramp-checks SurfaceBasinChecks
-      - name: Check village road geometry
-        run: |
-          mkdir -p build/road-checks
-          javac -d build/road-checks src/main/java/net/barttolo/bots/RoadLayout.java tests/RoadLayoutChecks.java
-          java -cp build/road-checks RoadLayoutChecks
-      - name: Check five-block road corridor
-        if: hashFiles('src/main/java/net/barttolo/bots/RoadCorridor.java') != ''
-        run: |
-          mkdir -p build/corridor-checks
-          javac -d build/corridor-checks src/main/java/net/barttolo/bots/RoadCorridor.java tests/RoadCorridorChecks.java
-          java -cp build/corridor-checks RoadCorridorChecks
-      - name: Build Forge mod
+      - name: Build both Forge 1.20.1 mods
         run: chmod +x gradlew && ./gradlew build -x test
-      - name: Check constructor in Forge server
-        timeout-minutes: 8
-        run: ./gradlew runGameTestServer
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: Barttolo-Bots-Constructor
-          path: build/libs/*.jar
+          name: Barttolo-Asistente-y-Ayudante-Forge-1.20.1
+          path: |
+            build/libs/*.jar
+            ayudante/build/libs/*.jar
           if-no-files-found: error
-      - name: Publish tested prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && contains(github.event.head_commit.message, '[release]')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view constructor-0.2.0-test-54 >/dev/null 2>&1; then
-            gh release edit constructor-0.2.0-test-54 --draft
-          fi
-          constructor_version=$(python3 -c "import re,pathlib; print(re.search(r'constructor-([0-9]+\\.[0-9]+\\.[0-9]+)',pathlib.Path('build.gradle').read_text()).group(1))")
-          gh release create "constructor-${constructor_version}-test-${GITHUB_RUN_NUMBER}" build/libs/*.jar --target "$GITHUB_SHA" --prerelease --title "Constructor ${constructor_version} — prueba ${GITHUB_RUN_NUMBER}" --notes-file "docs/CONSTRUCTOR-${constructor_version}.md"

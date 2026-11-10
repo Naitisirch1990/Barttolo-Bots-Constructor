@@ -2,9 +2,7 @@ package net.barttolo.bots;
 
 import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.Commands;
-import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.*;
 import net.minecraft.ChatFormatting;
@@ -27,11 +25,11 @@ import java.util.*;
 
 @Mod(Bots.ID)
 public final class Bots {
+    // Keep the original assistant mod id and world data/config keys for smooth replacement.
     public static final String ID="barttolobots";
     private static final Logger LOG=LogUtils.getLogger();
     public static Guide guide=Guide.defaults();
     public static final HostVisual visual=new HostVisual();
-    public static final ConstructorBuilder constructor=new ConstructorBuilder();
     private static final Map<UUID,Integer> welcomeAt=new HashMap<>(),replyAt=new HashMap<>();
     public Bots(){
         // An optional channel with no payloads explicitly permits clients without this mod.
@@ -43,23 +41,21 @@ public final class Bots {
         welcomeAt.clear();replyAt.clear();
         try{guide=GuideConfig.load();}catch(Exception ex){guide=Guide.defaults();LOG.error("No se pudo cargar la guía; se usan valores de referencia. No se sobrescribió el archivo.",ex);}
         HostData.get(e.getServer());
-        ConstructorData.get(e.getServer());
     }
-    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());constructor.shutdown(e.getServer());welcomeAt.clear();replyAt.clear();}
+    @SubscribeEvent public void stopping(ServerStoppingEvent e){visual.clear(e.getServer());welcomeAt.clear();replyAt.clear();}
     @SubscribeEvent public void login(PlayerEvent.PlayerLoggedInEvent e){
         if(e.getEntity() instanceof ServerPlayer p&&!(p instanceof FakePlayer)){
-            visual.forget(p.getUUID());constructor.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
+            visual.forget(p.getUUID());welcomeAt.put(p.getUUID(),p.server.getTickCount()+guide.welcomeDelaySeconds*20);
         }
     }
     @SubscribeEvent public void logout(PlayerEvent.PlayerLoggedOutEvent e){
-        UUID id=e.getEntity().getUUID();visual.forget(id);constructor.forget(id);welcomeAt.remove(id);replyAt.remove(id);
+        UUID id=e.getEntity().getUUID();visual.forget(id);welcomeAt.remove(id);replyAt.remove(id);
     }
-    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
-    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());constructor.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void dimension(PlayerEvent.PlayerChangedDimensionEvent e){visual.forget(e.getEntity().getUUID());}
+    @SubscribeEvent public void respawn(PlayerEvent.PlayerRespawnEvent e){visual.forget(e.getEntity().getUUID());}
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent e){
         if(e.phase!=TickEvent.Phase.END)return;
         MinecraftServer s=e.getServer();int now=s.getTickCount();
-        constructor.tick(s);
         if(now%20!=0)return;
         HostData d=HostData.get(s);
         visual.sync(s,d,guide);
@@ -69,8 +65,7 @@ public final class Bots {
             ServerPlayer p=s.getPlayerList().getPlayer(job.getKey());iterator.remove();
             if(p==null||!d.enabled)continue;
             boolean first=d.welcomed.add(p.getUUID());if(first)d.setDirty();
-            tell(p,guide.expand(first?guide.firstWelcome:guide.returnWelcome,p.getGameProfile().getName()));
-            if(first)menu(p);
+            welcome(p,guide.expand(first?guide.firstWelcome:guide.returnWelcome,p.getGameProfile().getName()));
         }
     }
     @SubscribeEvent public void chat(ServerChatEvent e){
@@ -85,6 +80,12 @@ public final class Bots {
     public static void tell(ServerPlayer p,String text){
         p.sendSystemMessage(Component.literal(guide.name+": ").withStyle(ChatFormatting.AQUA)
             .append(linkify(text)));
+    }
+    private static void welcome(ServerPlayer p,String text){
+        MutableComponent help=Component.literal("[AYUDA]").withStyle(style->style.withColor(ChatFormatting.GOLD).withBold(true).withUnderlined(true)
+            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,"/asistente"))
+            .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,Component.literal("Abrir temas de ayuda"))));
+        p.sendSystemMessage(Component.literal(guide.name+": ").withStyle(ChatFormatting.AQUA).append(linkify(text)).append(Component.literal(" ")).append(help));
     }
     public static MutableComponent linkify(String text){
         MutableComponent result=Component.empty();
@@ -102,11 +103,12 @@ public final class Bots {
     }
     private static void menu(ServerPlayer p){
         MutableComponent line=Component.literal(guide.name+" · Temas: ").withStyle(ChatFormatting.AQUA);
-        for(String topic:guide.topics.keySet()){
-            if(topic.equals("saludo")||topic.equals("identidad"))continue;
-            line.append(Component.literal("["+topic+"] ").withStyle(style->style.withColor(ChatFormatting.YELLOW)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,"/asistente "+topic))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,Component.literal("Consultar "+topic)))));
+        String[][] topics={{"eventos","Eventos"},{"asaltos","Asaltos"},{"misiones","Misiones"},{"invasiones","Invasiones"},{"reliquias","Reliquias"},{"ringworld","RingWorld"},{"economia","Economía"},{"premios","Premios (R-Coin) en el shop"}};
+        for(String[] entry:topics){
+            if(!guide.topics.containsKey(entry[0]))continue;
+            line.append(Component.literal("["+entry[1]+"] ").withStyle(style->style.withColor(ChatFormatting.YELLOW)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,"/asistente "+entry[0]))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,Component.literal("Consultar "+entry[1])))));
         }
         p.sendSystemMessage(line);
     }
@@ -140,20 +142,6 @@ public final class Bots {
                     try{Guide next=GuideConfig.load();guide=next;visual.clear(ctx.getSource().getServer());ctx.getSource().sendSuccess(()->Component.literal("Guía recargada correctamente."),false);return 1;}
                     catch(Exception ex){LOG.warn("No se recargó la guía",ex);ctx.getSource().sendFailure(Component.literal("No se recargó: "+ex.getMessage()+". Se conserva la guía anterior."));return 0;}
                 }))));
-        var gardener=dispatcher.register(Commands.literal("jardinero").requires(src->src.hasPermission(2))
-            .then(Commands.literal("crear")
-                .executes(ctx->constructor.create(ctx.getSource(),64))
-                .then(Commands.argument("ancho",IntegerArgumentType.integer(32,256))
-                    .executes(ctx->constructor.create(ctx.getSource(),IntegerArgumentType.getInteger(ctx,"ancho")))))
-            .then(Commands.literal("ir").executes(ctx->constructor.teleportTo(ctx.getSource())))
-            .then(Commands.literal("continuar").executes(ctx->constructor.resume(ctx.getSource())))
-            .then(Commands.literal("piel").then(Commands.argument("jugador",EntityArgument.player()).executes(ctx->constructor.skin(ctx.getSource(),EntityArgument.getPlayer(ctx,"jugador")))))
-            .then(Commands.literal("iniciar").executes(ctx->constructor.start(ctx.getSource())))
-            .then(Commands.literal("pausar").executes(ctx->constructor.pause(ctx.getSource())))
-            .then(Commands.literal("auditar").executes(ctx->constructor.audit(ctx.getSource())))
-            .then(Commands.literal("estado").executes(ctx->constructor.status(ctx.getSource())))
-            .then(Commands.literal("cancelar").executes(ctx->constructor.cancel(ctx.getSource()))));
-        dispatcher.register(Commands.literal("constructor").requires(src->src.hasPermission(2)).redirect(gardener));
     }
     private static int place(net.minecraft.commands.CommandSourceStack source,Vec3 pos){
         if(!Double.isFinite(pos.x)||!Double.isFinite(pos.y)||!Double.isFinite(pos.z)

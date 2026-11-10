@@ -62,13 +62,18 @@ public final class ConstructorBuilder {
     private boolean inside(ConstructorData d,BlockPos p){return d.contains(p.getX(),p.getZ());}
 
     public int create(CommandSourceStack source,int width){
+        return createAt(source,width,(int)Math.floor(source.getPosition().x),(int)Math.floor(source.getPosition().z),false);
+    }
+    public int createAt(CommandSourceStack source,int width,int centerX,int centerZ,boolean autoStart){
         if(width<32||width>256){source.sendFailure(Component.literal("El área debe medir entre 32 y 256 bloques de lado."));return 0;}
         releaseChunks();ConstructorData d=ConstructorData.get(source.getServer());d.positionSaved=false;visualInitialized=false;d.dimension=source.getLevel().dimension().location().toString();d.width=width;
-        d.centerX=(int)Math.floor(source.getPosition().x);d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=(int)Math.floor(source.getPosition().z);
-        d.configured=true;d.placed=0;d.completedJobs=0;d.skipped=0;restartSurvey(d);d.active=false;d.auditOnly=true;
+        d.centerX=centerX;d.centerY=(int)Math.floor(source.getPosition().y);d.centerZ=centerZ;
+        d.configured=true;d.placed=0;d.completedJobs=0;d.skipped=0;restartSurvey(d);d.active=autoStart;d.auditOnly=!autoStart;
         BlockPos start=findSafeStart(source.getLevel(),d);if(start==null){d.configured=false;source.sendFailure(Component.literal("No encontré suelo transitable cerca del centro."));return 0;}
         d.centerY=start.getY()+1;visualX=start.getX()+.5;visualY=footHeight(source.getLevel(),start);visualZ=start.getZ()+.5;visualInitialized=true;savePosition(d);resetActor(source.getServer());d.setDirty();
-        source.sendSuccess(()->Component.literal("Jardinero: inspección de "+d.areaLabel()+" iniciada. Revisaré césped, bordes y cuadrícula de farolas; usá /jardinero iniciar para trabajar."),false);return 1;
+        source.sendSuccess(()->Component.literal(autoStart
+            ?"Jardinero: inspección de "+d.areaLabel()+" iniciada. Al terminar, empezaré automáticamente."
+            :"Jardinero: inspección de "+d.areaLabel()+" iniciada. Usá /constructor iniciar para trabajar."),false);return 1;
     }
     private void restartSurvey(ConstructorData d){
         d.scanning=true;d.cursor=0;d.taskCursor=0;d.finished=false;d.reviewPending=false;d.lastReport="";d.tasks.clear();d.retryTasks.clear();

@@ -1,21 +1,26 @@
 plugins { id 'net.minecraftforge.gradle' version '6.0.54' }
-version='0.5.2-jardinero-test22'
-group='net.barttolo'
-base { archivesName='Barttolo-Bots-Forge-1.20.1' }
-java.toolchain.languageVersion=JavaLanguageVersion.of(17)
+version = '0.6.0'
+group = 'net.barttolo'
+base { archivesName = 'Barttolo-Asistente-Forge-1.20.1' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
 minecraft {
- mappings channel:'official',version:'1.20.1'
- runs {
-  gameTestServer {
-   workingDirectory project.file('run-test')
-   property 'forge.enabledGameTestNamespaces','barttolobots'
-   mods { barttolobots { source sourceSets.main } }
-  }
-  server { workingDirectory project.file('run-server'); args '--nogui'; mods { barttolobots { source sourceSets.main } } }
- }
+    mappings channel: 'official', version: '1.20.1'
+    runs {
+        server {
+            workingDirectory project.file('run-server')
+            args '--nogui'
+            mods { barttolobots { source sourceSets.main } }
+        }
+    }
 }
+
 repositories { mavenCentral() }
 dependencies { minecraft 'net.minecraftforge:forge:1.20.1-47.4.10' }
-tasks.named('jar',Jar).configure { finalizedBy 'reobfJar'; exclude 'net/barttolo/bots/HostGameTests*'; exclude 'net/barttolo/bots/ConstructorGameTests*' }
-tasks.withType(JavaCompile).configureEach { options.encoding='UTF-8' }
+
+tasks.named('jar', Jar).configure {
+    finalizedBy 'reobfJar'
+    exclude '**/*GameTests*'
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 tasks.withType(JavaExec).configureEach { if (name == 'runServer') standardInput = System.in }

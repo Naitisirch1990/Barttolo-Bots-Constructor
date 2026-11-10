@@ -1,0 +1,26 @@
+plugins { id 'net.minecraftforge.gradle' version '6.0.54' }
+version = '0.1.0'
+group = 'net.barttolo'
+base { archivesName = 'Barttolo-Ayudante-Forge-1.20.1' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    runs {
+        server {
+            workingDirectory project.file('run-server')
+            args '--nogui'
+            mods { barttoloayudante { source sourceSets.main } }
+        }
+    }
+}
+
+repositories { mavenCentral() }
+dependencies { minecraft 'net.minecraftforge:forge:1.20.1-47.4.10' }
+
+tasks.named('jar', Jar).configure {
+    finalizedBy 'reobfJar'
+    exclude '**/*GameTests*'
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(JavaExec).configureEach { if (name == 'runServer') standardInput = System.in }
