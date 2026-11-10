@@ -15,7 +15,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 @GameTestHolder(AyudanteMod.ID)
 @PrefixGameTestTemplate(false)
 public final class BridgeGameTests {
-    @GameTest(template="barttolobots:empty",timeoutTicks=200)
+    @GameTest(templateNamespace="barttolobots",template="empty",timeoutTicks=200)
     public static void independentBridgeAndGardener(GameTestHelper h) throws Exception {
         ServerLevel level=h.getLevel();BridgeBuilder builder=new BridgeBuilder();
         BridgeData d=BridgeData.get(level.getServer());d.active=false;d.configured=false;d.undoing=false;
