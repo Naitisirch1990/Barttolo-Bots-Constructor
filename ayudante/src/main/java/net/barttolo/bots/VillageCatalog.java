@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.ayudante;
 
 import java.util.*;
 import net.minecraft.core.BlockPos;
