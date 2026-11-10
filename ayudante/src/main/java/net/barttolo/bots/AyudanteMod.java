@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.ayudante;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.CommandSourceStack;
