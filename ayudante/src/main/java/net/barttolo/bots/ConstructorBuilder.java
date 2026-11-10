@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.ayudante;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
