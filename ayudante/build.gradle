@@ -9,7 +9,7 @@ minecraft {
     runs {
         gameTestServer {
             workingDirectory project.file("run-gametest")
-            property "forge.enabledGameTestNamespaces", "barttoloayudante"
+            property "forge.enabledGameTestNamespaces", "barttoloayudante,barttolobots"
             mods { barttoloayudante { source sourceSets.main } }
         }
         server {
