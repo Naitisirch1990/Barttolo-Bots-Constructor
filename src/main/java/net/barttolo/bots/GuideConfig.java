@@ -1,4 +1,4 @@
-package net.barttolo.bots;
+package net.barttolo.asistente;
 
 import com.google.gson.*;
 import net.minecraftforge.fml.loading.FMLPaths;
