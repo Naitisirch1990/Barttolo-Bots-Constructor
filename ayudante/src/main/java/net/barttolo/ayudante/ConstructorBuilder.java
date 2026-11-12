@@ -73,7 +73,7 @@ public final class ConstructorBuilder {
         d.centerY=start.getY()+1;visualX=start.getX()+.5;visualY=footHeight(source.getLevel(),start);visualZ=start.getZ()+.5;visualInitialized=true;savePosition(d);resetActor(source.getServer());d.setDirty();
         source.sendSuccess(()->Component.literal(autoStart
             ?"Jardinero: inspección de "+d.areaLabel()+" iniciada. Al terminar, empezaré automáticamente."
-            :"Jardinero: inspección de "+d.areaLabel()+" iniciada. Usá /constructor iniciar para trabajar."),false);return 1;
+            :"Jardinero: inspección de "+d.areaLabel()+" iniciada. Usá /jardinero iniciar para trabajar."),false);return 1;
     }
     private void restartSurvey(ConstructorData d){
         d.scanning=true;d.cursor=0;d.taskCursor=0;d.finished=false;d.reviewPending=false;d.lastReport="";d.tasks.clear();d.retryTasks.clear();

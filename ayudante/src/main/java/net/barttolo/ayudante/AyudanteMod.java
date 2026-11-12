@@ -18,7 +18,7 @@ import net.minecraftforge.fml.common.Mod;
 @Mod(AyudanteMod.ID)
 public final class AyudanteMod {
     public static final String ID = "barttoloayudante";
-    private static final ConstructorBuilder CONSTRUCTOR = new ConstructorBuilder();
+    private static final ConstructorBuilder JARDINERO = new ConstructorBuilder();
 
     public AyudanteMod() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -31,12 +31,12 @@ public final class AyudanteMod {
 
     @SubscribeEvent
     public void stopping(ServerStoppingEvent event) {
-        CONSTRUCTOR.shutdown(event.getServer());
+        JARDINERO.shutdown(event.getServer());
     }
 
     @SubscribeEvent
     public void tick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) CONSTRUCTOR.tick(event.getServer());
+        if (event.phase == TickEvent.Phase.END) { JARDINERO.tick(event.getServer()); BRIDGES.tick(event.getServer()); }
     }
 
     @SubscribeEvent
@@ -45,49 +45,41 @@ public final class AyudanteMod {
         event.getDispatcher().register(gardenerAlias());
     }
 
+    private static final BridgeBuilder BRIDGES = new BridgeBuilder();
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> constructorRoot() {
         return Commands.literal("constructor").requires(source -> source.hasPermission(2))
-            .executes(ctx -> CONSTRUCTOR.status(ctx.getSource()))
-            .then(Commands.literal("puntoA").executes(ctx -> markPointA(ctx.getSource())))
-            .then(Commands.literal("puntoB").executes(ctx -> markPointB(ctx.getSource())))
-            .then(Commands.literal("puntoa").executes(ctx -> markPointA(ctx.getSource())))
-            .then(Commands.literal("puntob").executes(ctx -> markPointB(ctx.getSource())))
-            .then(Commands.literal("crear")
-                .executes(ctx -> CONSTRUCTOR.create(ctx.getSource(), 64))
-                .then(Commands.argument("ancho", IntegerArgumentType.integer(32, 256))
-                    .executes(ctx -> CONSTRUCTOR.create(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "ancho")))))
-            .then(Commands.literal("ir").executes(ctx -> CONSTRUCTOR.teleportTo(ctx.getSource())))
-            .then(Commands.literal("continuar").executes(ctx -> CONSTRUCTOR.resume(ctx.getSource())))
-            .then(Commands.literal("piel").then(Commands.argument("jugador", net.minecraft.commands.arguments.EntityArgument.player())
-                .executes(ctx -> CONSTRUCTOR.skin(ctx.getSource(), net.minecraft.commands.arguments.EntityArgument.getPlayer(ctx, "jugador")))))
-            .then(Commands.literal("iniciar").executes(ctx -> CONSTRUCTOR.start(ctx.getSource())))
-            .then(Commands.literal("pausar").executes(ctx -> CONSTRUCTOR.pause(ctx.getSource())))
-            .then(Commands.literal("auditar").executes(ctx -> CONSTRUCTOR.audit(ctx.getSource())))
-            .then(Commands.literal("estado").executes(ctx -> CONSTRUCTOR.status(ctx.getSource())))
-            .then(Commands.literal("cancelar").executes(ctx -> CONSTRUCTOR.cancel(ctx.getSource())));
+            .executes(ctx -> BRIDGES.status(ctx.getSource()))
+            .then(Commands.literal("crear").executes(ctx -> BRIDGES.pointA(ctx.getSource())))
+            .then(Commands.literal("puntoA").executes(ctx -> BRIDGES.pointA(ctx.getSource())))
+            .then(Commands.literal("puntoB").executes(ctx -> BRIDGES.pointB(ctx.getSource())))
+            .then(Commands.literal("estado").executes(ctx -> BRIDGES.status(ctx.getSource())))
+            .then(Commands.literal("iniciar").executes(ctx -> BRIDGES.resume(ctx.getSource())))
+            .then(Commands.literal("continuar").executes(ctx -> BRIDGES.resume(ctx.getSource())))
+            .then(Commands.literal("pausar").executes(ctx -> BRIDGES.pause(ctx.getSource())))
+            .then(Commands.literal("cancelar").executes(ctx -> BRIDGES.cancel(ctx.getSource())))
+            .then(Commands.literal("deshacer").executes(ctx -> BRIDGES.undo(ctx.getSource())))
+            .then(Commands.literal("ir").executes(ctx -> BRIDGES.teleport(ctx.getSource())));
     }
 
-    /** Compatibility root: both public command names directly expose the same actions. */
+    /** Gardening selection and execution are independent from bridge jobs. */
     private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> gardenerAlias() {
         return Commands.literal("jardinero").requires(source -> source.hasPermission(2))
-            .executes(ctx -> CONSTRUCTOR.status(ctx.getSource()))
+            .executes(ctx -> JARDINERO.status(ctx.getSource()))
             .then(Commands.literal("puntoA").executes(ctx -> markPointA(ctx.getSource())))
             .then(Commands.literal("puntoB").executes(ctx -> markPointB(ctx.getSource())))
-            .then(Commands.literal("puntoa").executes(ctx -> markPointA(ctx.getSource())))
-            .then(Commands.literal("puntob").executes(ctx -> markPointB(ctx.getSource())))
             .then(Commands.literal("crear")
-                .executes(ctx -> CONSTRUCTOR.create(ctx.getSource(), 64))
+                .executes(ctx -> JARDINERO.create(ctx.getSource(), 64))
                 .then(Commands.argument("ancho", IntegerArgumentType.integer(32, 256))
-                    .executes(ctx -> CONSTRUCTOR.create(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "ancho")))))
-            .then(Commands.literal("ir").executes(ctx -> CONSTRUCTOR.teleportTo(ctx.getSource())))
-            .then(Commands.literal("continuar").executes(ctx -> CONSTRUCTOR.resume(ctx.getSource())))
+                    .executes(ctx -> JARDINERO.create(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "ancho")))))
+            .then(Commands.literal("ir").executes(ctx -> JARDINERO.teleportTo(ctx.getSource())))
+            .then(Commands.literal("continuar").executes(ctx -> JARDINERO.resume(ctx.getSource())))
             .then(Commands.literal("piel").then(Commands.argument("jugador", net.minecraft.commands.arguments.EntityArgument.player())
-                .executes(ctx -> CONSTRUCTOR.skin(ctx.getSource(), net.minecraft.commands.arguments.EntityArgument.getPlayer(ctx, "jugador")))))
-            .then(Commands.literal("iniciar").executes(ctx -> CONSTRUCTOR.start(ctx.getSource())))
-            .then(Commands.literal("pausar").executes(ctx -> CONSTRUCTOR.pause(ctx.getSource())))
-            .then(Commands.literal("auditar").executes(ctx -> CONSTRUCTOR.audit(ctx.getSource())))
-            .then(Commands.literal("estado").executes(ctx -> CONSTRUCTOR.status(ctx.getSource())))
-            .then(Commands.literal("cancelar").executes(ctx -> CONSTRUCTOR.cancel(ctx.getSource())));
+                .executes(ctx -> JARDINERO.skin(ctx.getSource(), net.minecraft.commands.arguments.EntityArgument.getPlayer(ctx, "jugador")))))
+            .then(Commands.literal("iniciar").executes(ctx -> JARDINERO.start(ctx.getSource())))
+            .then(Commands.literal("pausar").executes(ctx -> JARDINERO.pause(ctx.getSource())))
+            .then(Commands.literal("auditar").executes(ctx -> JARDINERO.audit(ctx.getSource())))
+            .then(Commands.literal("estado").executes(ctx -> JARDINERO.status(ctx.getSource())))
+            .then(Commands.literal("cancelar").executes(ctx -> JARDINERO.cancel(ctx.getSource())));
     }
 
     private static int markPointA(CommandSourceStack source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
@@ -101,7 +93,7 @@ public final class AyudanteMod {
         data.hasPointA = true;
         data.setDirty();
         source.sendSuccess(() -> Component.literal("Punto A guardado en " + data.pointAX + " " + data.pointAY + " " + data.pointAZ
-            + " (" + data.pointDimension + "). Ve a la esquina opuesta y usa /constructor puntoB."), false);
+            + " (" + data.pointDimension + "). Ve a la esquina opuesta y usa /jardinero puntoB."), false);
         return 1;
     }
 
@@ -109,7 +101,7 @@ public final class AyudanteMod {
         ServerPlayer player = source.getPlayerOrException();
         ConstructorData data = ConstructorData.get(source.getServer());
         if (!data.hasPointA) {
-            source.sendFailure(Component.literal("Primero marca la primera esquina con /constructor puntoA."));
+            source.sendFailure(Component.literal("Primero marca la primera esquina con /jardinero puntoA."));
             return 0;
         }
         String dimension = player.level().dimension().location().toString();
@@ -126,7 +118,7 @@ public final class AyudanteMod {
         }
         int centerX = Math.min(b.getX(), data.pointAX) + width / 2;
         int centerZ = Math.min(b.getZ(), data.pointAZ) + width / 2;
-        int result = CONSTRUCTOR.createAt(source, width, centerX, centerZ, true);
+        int result = JARDINERO.createAt(source, width, centerX, centerZ, true);
         if (result > 0) {
             data.hasPointA = false;
             data.setDirty();

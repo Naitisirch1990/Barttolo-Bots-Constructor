@@ -19,6 +19,12 @@ jobs:
           cache: gradle
       - name: Build both Forge 1.20.1 mods
         run: chmod +x gradlew && ./gradlew build -x test
+      - name: Verify independent constructor and gardener in Minecraft
+        timeout-minutes: 8
+        run: |
+          set -o pipefail
+          ./gradlew :ayudante:runGameTestServer | tee gametest.log
+          grep -Eq "[1-9][0-9]* GAME TESTS COMPLETE" gametest.log
       - uses: actions/upload-artifact@v4
         if: success()
         with:

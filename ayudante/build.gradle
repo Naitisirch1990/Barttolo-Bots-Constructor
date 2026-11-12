@@ -1,5 +1,5 @@
 plugins { id 'net.minecraftforge.gradle' version '6.0.54' }
-version = '0.1.0'
+version = '0.2.1'
 group = 'net.barttolo'
 base { archivesName = 'Barttolo-Ayudante-Forge-1.20.1' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -7,6 +7,11 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 minecraft {
     mappings channel: 'official', version: '1.20.1'
     runs {
+        gameTestServer {
+            workingDirectory project.file("run-gametest")
+            property "forge.enabledGameTestNamespaces", "barttoloayudante,barttolobots"
+            mods { barttoloayudante { source sourceSets.main } }
+        }
         server {
             workingDirectory project.file('run-server')
             args '--nogui'
