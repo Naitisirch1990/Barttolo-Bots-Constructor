@@ -68,18 +68,41 @@ public final class BridgeBuilder {
             BlockPos c=centers.get(cell.section);int side=alongX?cell.pos.getZ()-c.getZ():cell.pos.getX()-c.getX();
             if(Math.abs(side)==3)add(d,cell.pos.above(),Blocks.DEEPSLATE_BRICK_WALL.defaultBlockState());
         }
-        // Three-wide support bents, every 15 sections, descending to real solid ground.
-        for(int i=15;i<steps;i+=15){BlockPos c=centers.get(i);
-            for(int side=-1;side<=1;side++)for(int depth=1;depth<=64;depth++){
-                BlockPos p=c.offset(alongX?0:side,-depth,alongX?side:0);if(p.getY()<=world.getMinBuildHeight())break;
-                world.getChunk(p.getX()>>4,p.getZ()>>4);BlockState old=world.getBlockState(p);
-                if(old.isCollisionShapeFullBlock(world,p)&&world.getFluidState(p).isEmpty())break;
-                if(old.getDestroySpeed(world,p)<0||world.getBlockEntity(p)!=null)break;
-                add(d,p,Blocks.DEEPSLATE_BRICKS.defaultBlockState());
-            }
+        for (int i = 15; i < steps; i += 15) {
+            planPier(world, d, centers, i, alongX);
         }
         d.hasA=false;d.configured=true;d.active=true;d.setDirty();say(s,"Constructor: obra de "+(steps+1)+" tramos iniciada. Piso de 5 bloques útiles, luces laterales cada 4 y barandillas exteriores. /constructor estado muestra el avance.");return 1;
     }
+    private static void planPier(ServerLevel world, BridgeData data, List<BlockPos> centers,
+                                 int section, boolean alongX) {
+        // The shaft is three sections long and three blocks wide. The two upper
+        // courses flare out to meet the deck, following its grade and direction.
+        for (int longitudinal = -3; longitudinal <= 3; longitudinal++) {
+            int index = section + longitudinal;
+            if (index < 0 || index >= centers.size()) continue;
+            BlockPos center = centers.get(index);
+            for (int side = -3; side <= 3; side++) {
+                BlockPos top = center.offset(alongX ? 0 : side, 0, alongX ? side : 0);
+                int depthLimit = Math.abs(longitudinal) <= 1 && Math.abs(side) <= 1 ? 64
+                    : Math.abs(longitudinal) <= 2 && Math.abs(side) <= 2 ? 2 : 1;
+                world.getChunk(top.getX() >> 4, top.getZ() >> 4);
+                for (int depth = 1; depth <= depthLimit; depth++) {
+                    BlockPos pos = top.below(depth);
+                    if (pos.getY() <= world.getMinBuildHeight()) break;
+                    BlockState old = world.getBlockState(pos);
+                    if (world.getBlockEntity(pos) != null || old.getDestroySpeed(world, pos) < 0
+                        || old.is(Blocks.NETHER_PORTAL) || old.is(Blocks.END_PORTAL)) break;
+                    if (old.isCollisionShapeFullBlock(world, pos) && world.getFluidState(pos).isEmpty()
+                        && !old.is(net.minecraft.tags.BlockTags.LEAVES)) break;
+                    BlockState material = depth <= 2 || (longitudinal == 0 && Math.abs(side) == 1)
+                        ? Blocks.REINFORCED_DEEPSLATE.defaultBlockState()
+                        : Blocks.DEEPSLATE_BRICKS.defaultBlockState();
+                    add(data, pos, material);
+                }
+            }
+        }
+    }
+
     private static void add(BridgeData d,BlockPos p,BlockState state){CompoundTag n=new CompoundTag();n.putLong("pos",p.asLong());n.put("state",NbtUtils.writeBlockState(state));d.plan.add(n);}
     public void tick(MinecraftServer s){
         BridgeData d=BridgeData.get(s);if(!d.active)return;ServerLevel world=level(s,d);if(world==null)return;

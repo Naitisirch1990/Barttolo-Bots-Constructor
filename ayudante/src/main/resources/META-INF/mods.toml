@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="barttoloayudante"
-version="0.2.0"
+version="0.2.1"
 displayName="Barttolo Ayudante — RingWorld"
 displayTest="IGNORE_SERVER_VERSION"
 description='''Jardinero de áreas de césped y Constructor independiente de caminos y puentes entre A y B. Solo servidor.'''
